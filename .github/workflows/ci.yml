@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install backend dependencies
+        run: npm install
+        working-directory: ./backend
+      - name: Run backend tests
+        run: npm test --if-present
+        working-directory: ./backend
+
+  mobile-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install mobile dependencies
+        run: npm install
+        working-directory: ./RouteLinkMobile
+      - name: Run mobile tests
+        run: npm test --if-present
+        working-directory: ./RouteLinkMobile
