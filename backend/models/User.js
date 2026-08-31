@@ -1,9 +1,3 @@
-// models/User.js
-// A traveler or guide account. `preferences` is a free-form JSON field that
-// the AI/ML recommendation engine reads from (e.g. interests, budget band,
-// travel pace, past destination types). Backend just stores/returns it —
-// shape is owned jointly with the ML team.
-
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
@@ -24,7 +18,7 @@ module.exports = (sequelize) => {
       validate: { isEmail: true },
     },
     password: {
-      type: DataTypes.STRING, // bcrypt hash, never plaintext
+      type: DataTypes.STRING,
       allowNull: false,
     },
     role: {
@@ -33,8 +27,6 @@ module.exports = (sequelize) => {
       defaultValue: 'traveler',
     },
     preferences: {
-      // Read by the ML recommendation engine. e.g.
-      // { interests: ["hiking","food"], budgetLevel: "mid", pace: "relaxed" }
       type: DataTypes.JSONB,
       allowNull: false,
       defaultValue: {},

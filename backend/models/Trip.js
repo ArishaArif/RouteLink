@@ -1,6 +1,3 @@
-// models/Trip.js
-// A trip belongs to a User (the traveler who owns/planned it).
-
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {

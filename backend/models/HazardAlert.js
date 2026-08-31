@@ -1,10 +1,3 @@
-// models/HazardAlert.js
-// Region-based safety/hazard alerts fed by an NLP pipeline (e.g. scraping
-// news/advisories and classifying them). Deliberately NOT tied to a
-// specific trip or user — it's queried by region/location so any trip
-// whose destination matches gets warned. `source` records what fed it in
-// (useful while the NLP pipeline is still being iterated on).
-
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
@@ -18,7 +11,6 @@ module.exports = (sequelize) => {
       type: DataTypes.STRING,
       allowNull: false,
     },
-    // Optional finer-grained coordinates, if the NLP pipeline can resolve them.
     latitude: {
       type: DataTypes.DECIMAL(9, 6),
       allowNull: true,
@@ -46,7 +38,6 @@ module.exports = (sequelize) => {
       allowNull: true,
     },
     source: {
-      // e.g. "nlp_pipeline_v1", "manual", name of feed ingested
       type: DataTypes.STRING,
       allowNull: true,
     },

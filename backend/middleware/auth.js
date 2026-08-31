@@ -1,8 +1,3 @@
-// middleware/auth.js
-// Verifies an `Authorization: Bearer <token>` header and attaches the
-// decoded payload to req.user. Routes/controllers built on Day 2 can wrap
-// any route with `requireAuth`, and optionally `requireRole('guide')`.
-
 const { verifyToken } = require('../utils/jwt');
 
 function requireAuth(req, res, next) {
@@ -15,17 +10,13 @@ function requireAuth(req, res, next) {
 
   try {
     const decoded = verifyToken(token);
-    req.user = decoded; // e.g. { id, role, iat, exp }
+    req.user = decoded;
     return next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
 }
 
-/**
- * Optional role gate. Use after requireAuth: requireRole('guide')
- * @param {...string} allowedRoles
- */
 function requireRole(...allowedRoles) {
   return (req, res, next) => {
     if (!req.user) {

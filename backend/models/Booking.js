@@ -1,8 +1,3 @@
-// models/Booking.js
-// Links a Trip, a Guide, and the User making the booking (the traveler).
-// Kept separate from Trip/Guide since one trip could have multiple guide
-// bookings (different days/regions), and to allow booking-specific state.
-
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {

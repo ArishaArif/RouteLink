@@ -1,8 +1,3 @@
-// models/Guide.js
-// Extends a User whose role is "guide" with guide-specific profile data.
-// Kept as a separate table (not extra columns on User) since most users
-// will never have this data.
-
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
@@ -15,7 +10,7 @@ module.exports = (sequelize) => {
     userId: {
       type: DataTypes.UUID,
       allowNull: false,
-      unique: true, // one guide profile per user
+      unique: true,
       field: 'user_id',
     },
     region: {
@@ -37,7 +32,7 @@ module.exports = (sequelize) => {
       field: 'price_per_day',
     },
     rating: {
-      type: DataTypes.DECIMAL(2, 1), // 0.0 - 5.0
+      type: DataTypes.DECIMAL(2, 1),
       allowNull: false,
       defaultValue: 0,
     },
