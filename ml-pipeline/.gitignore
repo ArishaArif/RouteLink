@@ -1,0 +1,30 @@
+# --- Environment & secrets ---
+.env
+.venv/
+venv/
+env/
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+*.egg-info/
+
+# --- Data & models (usually too large / regeneratable for git) ---
+# Keep raw/processed data OUT of git by default -- it's either large,
+# re-downloadable, or both. If a teammate needs it, share it directly
+# rather than bloating the repo. Remove these two lines if your data
+# is small and you *do* want it version-controlled.
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+models/*.pkl
+models/*.joblib
+
+# --- OS/editor noise ---
+.DS_Store
+.vscode/
+.idea/
