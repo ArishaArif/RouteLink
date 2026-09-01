@@ -58,3 +58,14 @@ Tested Auth + Trip flow against real backend code (not dummy data).
 
 \- Create Trip (with correct field names + Bearer token) → creates real trip in DB
 
+
+## Expo Go / SDK 57 compatibility issue
+Project uses Expo SDK 57 (very recent release). Expo Go's matching version isn't yet available on Apple App Store (as of Sept 2, still in Apple review). iPhone users get "incompatible version" error when scanning QR code.
+
+Not a bug in our code, App Store timing issue only. Final built app (via EAS Build) will run fine on iPhone regardless.
+
+Workarounds for testing during development:
+- Use Android phone with direct APK download (expo.dev/go?sdkVersion=57&platform=android&device=true)
+- Use Android emulator via Android Studio
+- Or wait for Apple review to clear
+
