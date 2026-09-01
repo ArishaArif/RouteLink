@@ -53,7 +53,7 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()  # never mutate the original DataFrame in place -- avoids silent bugs
     df["name"] = df["name"].str.strip()
     df["category"] = df["category"].str.strip().str.lower()
-    df["province"] = df["province"].str.strip()
+    df["province"] = df["province"].str.strip().str.replace("−", "-", regex=False)
     df["description"] = df["description"].str.strip()
 
     # Drop any row missing essential fields -- a destination with no name/category is unusable
