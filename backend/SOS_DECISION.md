@@ -4,8 +4,6 @@
 
 Primary: Mapbox Search/Geocoding API — Mapbox account is working (token active), consistent with map screen provider, avoids running two different map/location providers.
 
-Fallback: OpenStreetMap + Overpass API — free, no billing needed, use if Mapbox billing/limits ever become an issue.
-
 Backup safety net: Static list of known emergency numbers per region, for offline/failure cases.
 
 
