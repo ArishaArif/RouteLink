@@ -290,4 +290,3 @@ RouteLinkMobile/
 
 > **SOS note:** `GET /api/sos/nearest` is not yet built on the backend (see `backend/SOS_DECISION.md`). Do not integrate the SOS screen against it yet.
 npm run smoke:day4 # itinerary write contract, marketplace hand-off, write auth
-```
