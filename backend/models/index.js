@@ -7,6 +7,7 @@ const Itinerary = require('./Itinerary')(sequelize);
 const Guide = require('./Guide')(sequelize);
 const Booking = require('./Booking')(sequelize);
 const HazardAlert = require('./HazardAlert')(sequelize);
+const ChatMessage = require('./ChatMessage')(sequelize);
 
 User.hasMany(Trip, { foreignKey: 'userId', as: 'trips', onDelete: 'CASCADE' });
 Trip.belongsTo(User, { foreignKey: 'userId', as: 'traveler' });
@@ -26,6 +27,12 @@ Booking.belongsTo(Guide, { foreignKey: 'guideId', as: 'guide' });
 User.hasMany(Booking, { foreignKey: 'userId', as: 'bookings', onDelete: 'CASCADE' });
 Booking.belongsTo(User, { foreignKey: 'userId', as: 'traveler' });
 
+Booking.hasMany(ChatMessage, { foreignKey: 'bookingId', as: 'messages', onDelete: 'CASCADE' });
+ChatMessage.belongsTo(Booking, { foreignKey: 'bookingId', as: 'booking' });
+
+User.hasMany(ChatMessage, { foreignKey: 'senderId', as: 'sentMessages', onDelete: 'CASCADE' });
+ChatMessage.belongsTo(User, { foreignKey: 'senderId', as: 'sender' });
+
 module.exports = {
   sequelize,
   Sequelize,
@@ -35,4 +42,5 @@ module.exports = {
   Guide,
   Booking,
   HazardAlert,
+  ChatMessage,
 };

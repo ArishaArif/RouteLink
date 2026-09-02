@@ -5,6 +5,7 @@ const { signToken } = require('../utils/jwt');
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BCRYPT_ROUNDS = 10;
 const MIN_PASSWORD_LENGTH = 8;
+const SIGNUP_ROLES = ['traveler', 'guide'];
 const DECOY_HASH = bcrypt.hashSync('routelink-decoy-value', BCRYPT_ROUNDS);
 
 function publicUser(user) {
@@ -25,7 +26,7 @@ function isNonEmptyString(value) {
 
 async function signup(req, res, next) {
   try {
-    const { name, email, password } = req.body || {};
+    const { name, email, password, role } = req.body || {};
     const details = [];
 
     if (!isNonEmptyString(name)) {
@@ -40,6 +41,9 @@ async function signup(req, res, next) {
       details.push('password is required');
     } else if (password.length < MIN_PASSWORD_LENGTH) {
       details.push(`password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+    }
+    if (role !== undefined && !SIGNUP_ROLES.includes(role)) {
+      details.push(`role must be one of: ${SIGNUP_ROLES.join(', ')}`);
     }
 
     if (details.length > 0) {
@@ -58,6 +62,7 @@ async function signup(req, res, next) {
       name: name.trim(),
       email: normalizedEmail,
       password: passwordHash,
+      role: role || 'traveler',
     });
 
     const token = signToken({ id: user.id, role: user.role });

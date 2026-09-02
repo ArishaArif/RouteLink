@@ -19,6 +19,9 @@ app.get('/health', async (req, res) => {
 
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/trips', require('./routes/trips'));
+app.use('/api/guides', require('./routes/guides'));
+app.use('/api/bookings', require('./routes/bookings'));
+app.use('/api/hazards', require('./routes/hazards'));
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found', method: req.method, path: req.originalUrl });
