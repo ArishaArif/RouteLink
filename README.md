@@ -190,7 +190,7 @@ npm run smoke:day3 # guides, bookings, chat, hazard ingest
 ---
 ```
 
-## 📱 RouteLink Mobile Client — Role A (Mobile Lead)
+## 📱 RouteLink Mobile
 
 The mobile frontend for **RouteLink**, built with **React Native** and **Expo SDK 52** using TypeScript. This section covers ownership, structure, and setup for the `RouteLinkMobile/` module.
 
