@@ -1,4 +1,5 @@
 const { DataTypes } = require('sequelize');
+const { numericGetter } = require('../utils/numeric');
 
 module.exports = (sequelize) => {
   const Trip = sequelize.define('Trip', {
@@ -36,6 +37,7 @@ module.exports = (sequelize) => {
     budget: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: true,
+      get: numericGetter('budget'),
     },
   }, {
     tableName: 'trips',

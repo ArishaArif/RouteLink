@@ -1,4 +1,5 @@
 const { DataTypes } = require('sequelize');
+const { numericGetter } = require('../utils/numeric');
 
 module.exports = (sequelize) => {
   const HazardAlert = sequelize.define('HazardAlert', {
@@ -14,10 +15,12 @@ module.exports = (sequelize) => {
     latitude: {
       type: DataTypes.DECIMAL(9, 6),
       allowNull: true,
+      get: numericGetter('latitude'),
     },
     longitude: {
       type: DataTypes.DECIMAL(9, 6),
       allowNull: true,
+      get: numericGetter('longitude'),
     },
     category: {
       type: DataTypes.ENUM('weather', 'health', 'safety', 'political', 'natural_disaster', 'other'),
@@ -41,6 +44,16 @@ module.exports = (sequelize) => {
       type: DataTypes.STRING,
       allowNull: true,
     },
+    sourceType: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      field: 'source_type',
+    },
+    rawText: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      field: 'raw_text',
+    },
     isActive: {
       type: DataTypes.BOOLEAN,
       allowNull: false,
@@ -52,11 +65,17 @@ module.exports = (sequelize) => {
       allowNull: true,
       field: 'expires_at',
     },
+    dedupeHash: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+      field: 'dedupe_hash',
+    },
   }, {
     tableName: 'hazard_alerts',
     indexes: [
       { fields: ['region'] },
       { fields: ['is_active'] },
+      { unique: true, fields: ['dedupe_hash'] },
     ],
   });
 

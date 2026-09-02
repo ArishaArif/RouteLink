@@ -1,15 +1,17 @@
 const express = require('express');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireAuthOrService } = require('../middleware/auth');
 const {
   createTrip,
   listTrips,
   getTrip,
   updateTrip,
   deleteTrip,
-  getItinerary,
 } = require('../controllers/tripController');
+const { getItinerary, putItinerary } = require('../controllers/itineraryController');
 
 const router = express.Router();
+
+router.put('/:id/itinerary', requireAuthOrService, putItinerary);
 
 router.use(requireAuth);
 

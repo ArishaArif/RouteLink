@@ -1,4 +1,5 @@
 const { DataTypes } = require('sequelize');
+const { numericGetter } = require('../utils/numeric');
 
 module.exports = (sequelize) => {
   const Booking = sequelize.define('Booking', {
@@ -31,14 +32,15 @@ module.exports = (sequelize) => {
       allowNull: false,
     },
     status: {
-      type: DataTypes.ENUM('pending', 'confirmed', 'cancelled', 'completed'),
+      type: DataTypes.ENUM('requested', 'pending', 'confirmed', 'cancelled', 'completed'),
       allowNull: false,
-      defaultValue: 'pending',
+      defaultValue: 'requested',
     },
     totalPrice: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: true,
       field: 'total_price',
+      get: numericGetter('totalPrice'),
     },
   }, {
     tableName: 'bookings',

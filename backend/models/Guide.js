@@ -1,4 +1,5 @@
 const { DataTypes } = require('sequelize');
+const { numericGetter } = require('../utils/numeric');
 
 module.exports = (sequelize) => {
   const Guide = sequelize.define('Guide', {
@@ -26,15 +27,21 @@ module.exports = (sequelize) => {
       type: DataTypes.TEXT,
       allowNull: true,
     },
+    phone: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
     pricePerDay: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: false,
       field: 'price_per_day',
+      get: numericGetter('pricePerDay'),
     },
     rating: {
       type: DataTypes.DECIMAL(2, 1),
       allowNull: false,
       defaultValue: 0,
+      get: numericGetter('rating'),
     },
     isAvailable: {
       type: DataTypes.BOOLEAN,

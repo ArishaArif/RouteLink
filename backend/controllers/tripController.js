@@ -1,62 +1,19 @@
-const { Trip, Itinerary } = require('../models');
+const { Trip } = require('../models');
+const {
+  isNonEmptyString,
+  isValidCalendarDate,
+  dayCountInclusive,
+  requireUuidParam,
+  parsePagination,
+  unknownKeys,
+  MAX_TRIP_DAYS,
+} = require('../utils/validate');
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TRIP_STATUSES = ['planning', 'upcoming', 'ongoing', 'completed', 'cancelled'];
 const UPDATABLE_FIELDS = ['title', 'destination', 'startDate', 'endDate', 'status', 'budget'];
-const MAX_ITINERARY_DAYS = 60;
-
-function isNonEmptyString(value) {
-  return typeof value === 'string' && value.trim().length > 0;
-}
-
-function isValidCalendarDate(value) {
-  if (typeof value !== 'string' || !DATE_PATTERN.test(value)) {
-    return false;
-  }
-  const parsed = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
-}
-
-function tripIdOrNull(req, res) {
-  const { id } = req.params;
-  if (!UUID_PATTERN.test(id)) {
-    res.status(400).json({ error: 'Trip id must be a valid UUID' });
-    return null;
-  }
-  return id;
-}
 
 async function findOwnedTrip(tripId, userId) {
   return Trip.findOne({ where: { id: tripId, userId } });
-}
-
-function datesInRange(startDate, endDate) {
-  const dates = [];
-  const cursor = new Date(`${startDate}T00:00:00Z`);
-  const last = new Date(`${endDate}T00:00:00Z`);
-  while (cursor <= last) {
-    dates.push(cursor.toISOString().slice(0, 10));
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-  return dates;
-}
-
-function placeholderActivities(destination, dayNumber) {
-  return [
-    {
-      time: '09:00',
-      title: `Morning exploration around ${destination}`,
-      location: destination,
-      notes: 'Placeholder activity - awaiting AI recommender',
-    },
-    {
-      time: '14:00',
-      title: `Afternoon viewpoint stop (day ${dayNumber})`,
-      location: destination,
-      notes: 'Placeholder activity - awaiting AI recommender',
-    },
-  ];
 }
 
 async function createTrip(req, res, next) {
@@ -76,8 +33,12 @@ async function createTrip(req, res, next) {
     if (!isValidCalendarDate(endDate)) {
       details.push('endDate is required in YYYY-MM-DD format');
     }
-    if (isValidCalendarDate(startDate) && isValidCalendarDate(endDate) && endDate < startDate) {
-      details.push('endDate must be on or after startDate');
+    if (isValidCalendarDate(startDate) && isValidCalendarDate(endDate)) {
+      if (endDate < startDate) {
+        details.push('endDate must be on or after startDate');
+      } else if (dayCountInclusive(startDate, endDate) > MAX_TRIP_DAYS) {
+        details.push(`trip must span at most ${MAX_TRIP_DAYS} days`);
+      }
     }
     if (status !== undefined && !TRIP_STATUSES.includes(status)) {
       details.push(`status must be one of: ${TRIP_STATUSES.join(', ')}`);
@@ -108,11 +69,25 @@ async function createTrip(req, res, next) {
 
 async function listTrips(req, res, next) {
   try {
-    const trips = await Trip.findAll({
+    const page = parsePagination(req, res);
+    if (!page) {
+      return undefined;
+    }
+
+    const { rows, count: total } = await Trip.findAndCountAll({
       where: { userId: req.user.id },
       order: [['startDate', 'ASC'], ['createdAt', 'ASC']],
+      limit: page.limit,
+      offset: page.offset,
     });
-    return res.status(200).json({ count: trips.length, trips });
+
+    return res.status(200).json({
+      count: rows.length,
+      total,
+      limit: page.limit,
+      offset: page.offset,
+      trips: rows,
+    });
   } catch (err) {
     return next(err);
   }
@@ -120,7 +95,7 @@ async function listTrips(req, res, next) {
 
 async function getTrip(req, res, next) {
   try {
-    const tripId = tripIdOrNull(req, res);
+    const tripId = requireUuidParam(req, res, 'id', 'Trip id');
     if (!tripId) {
       return undefined;
     }
@@ -138,7 +113,7 @@ async function getTrip(req, res, next) {
 
 async function updateTrip(req, res, next) {
   try {
-    const tripId = tripIdOrNull(req, res);
+    const tripId = requireUuidParam(req, res, 'id', 'Trip id');
     if (!tripId) {
       return undefined;
     }
@@ -149,6 +124,17 @@ async function updateTrip(req, res, next) {
     }
 
     const body = req.body || {};
+    const unexpected = unknownKeys(body, UPDATABLE_FIELDS);
+    if (unexpected.length > 0) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: [
+          `unexpected fields: ${unexpected.join(', ')}`,
+          `updatable fields are: ${UPDATABLE_FIELDS.join(', ')}`,
+        ],
+      });
+    }
+
     const provided = UPDATABLE_FIELDS.filter((field) => body[field] !== undefined);
     if (provided.length === 0) {
       return res.status(400).json({
@@ -182,6 +168,8 @@ async function updateTrip(req, res, next) {
       const nextEnd = body.endDate === undefined ? trip.endDate : body.endDate;
       if (nextEnd < nextStart) {
         details.push('endDate must be on or after startDate');
+      } else if (dayCountInclusive(nextStart, nextEnd) > MAX_TRIP_DAYS) {
+        details.push(`trip must span at most ${MAX_TRIP_DAYS} days`);
       }
     }
 
@@ -205,7 +193,7 @@ async function updateTrip(req, res, next) {
 
 async function deleteTrip(req, res, next) {
   try {
-    const tripId = tripIdOrNull(req, res);
+    const tripId = requireUuidParam(req, res, 'id', 'Trip id');
     if (!tripId) {
       return undefined;
     }
@@ -222,67 +210,10 @@ async function deleteTrip(req, res, next) {
   }
 }
 
-async function getItinerary(req, res, next) {
-  try {
-    const tripId = tripIdOrNull(req, res);
-    if (!tripId) {
-      return undefined;
-    }
-
-    const trip = await findOwnedTrip(tripId, req.user.id);
-    if (!trip) {
-      return res.status(404).json({ error: 'Trip not found' });
-    }
-
-    const stored = await Itinerary.findAll({
-      where: { tripId: trip.id },
-      order: [['dayNumber', 'ASC']],
-    });
-
-    if (stored.length > 0) {
-      return res.status(200).json({
-        tripId: trip.id,
-        destination: trip.destination,
-        source: 'stored',
-        days: stored.length,
-        itinerary: stored,
-      });
-    }
-
-    const dates = datesInRange(trip.startDate, trip.endDate);
-    if (dates.length > MAX_ITINERARY_DAYS) {
-      return res.status(422).json({
-        error: `Trip spans ${dates.length} days, which exceeds the ${MAX_ITINERARY_DAYS}-day placeholder limit`,
-      });
-    }
-
-    const itinerary = dates.map((date, index) => ({
-      id: null,
-      tripId: trip.id,
-      dayNumber: index + 1,
-      date,
-      activities: placeholderActivities(trip.destination, index + 1),
-      weatherContext: null,
-    }));
-
-    return res.status(200).json({
-      tripId: trip.id,
-      destination: trip.destination,
-      source: 'placeholder',
-      generatedAt: new Date().toISOString(),
-      days: itinerary.length,
-      itinerary,
-    });
-  } catch (err) {
-    return next(err);
-  }
-}
-
 module.exports = {
   createTrip,
   listTrips,
   getTrip,
   updateTrip,
   deleteTrip,
-  getItinerary,
 };
