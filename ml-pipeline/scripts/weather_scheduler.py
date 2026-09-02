@@ -14,6 +14,7 @@ Run: python scripts/weather_scheduler.py
 """
 
 import os
+import math
 import requests
 import pandas as pd
 from dotenv import load_dotenv
@@ -21,6 +22,23 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DESTINATIONS_PATH = "data/processed/destinations_clean.csv"
+
+# Known coordinates for Northern Pakistan tourism hubs -- used as a
+# fallback anchor point when we're not fetching live weather (mock mode)
+# and don't have a real API response to read coordinates from.
+CITY_COORDS = {
+    "Skardu": (35.2971, 75.6333),
+    "Hunza": (36.3167, 74.6500),
+    "Gilgit": (35.9221, 74.3087),
+    "Naran": (34.9042, 73.6500),
+    "Chilas": (35.4227, 74.1015),
+}
+
+# How far from the queried city a destination can be and still count as
+# "nearby" for recommendation purposes. Northern Pakistan's valleys are
+# spread out, so 120km is generous enough to return a few real options
+# without suggesting somewhere a day's drive away.
+PROXIMITY_RADIUS_KM = 120
 
 # Which categories are safe/pleasant in which weather condition.
 # Note: "mosque" and "fort" are NOT treated as rain/snow-safe here even
@@ -84,21 +102,58 @@ def classify_heat(temp_c: float) -> str:
     return "extreme"  # unreachable given inf above, but keeps the function total
 
 
-def fetch_full_forecast(city: str, api_key: str) -> list:
+def get_city_coords(city: str, api_key: str) -> tuple:
+    """
+    Resolve a city name to (lat, lon) BEFORE calling the forecast API --
+    and crucially, do it via OpenWeatherMap's dedicated Geocoding API,
+    not the forecast endpoint's built-in q=CityName search.
+
+    Why this matters: q=CityName on the /forecast endpoint uses an old,
+    incomplete static city list that's especially weak for small towns
+    (exactly what happened here -- "Hunza,PK" either silently matched
+    the wrong place, or 404'd outright, inconsistently). The Geocoding
+    API is the currently-recommended, more accurate way to turn a place
+    name into coordinates, and once we have coordinates we call the
+    forecast endpoint by lat/lon instead -- which has no ambiguity at all.
+    """
+    if city in CITY_COORDS:
+        return CITY_COORDS[city]
+
+    url = "http://api.openweathermap.org/geo/1.0/direct"
+    params = {"q": f"{city},PK", "limit": 1, "appid": api_key}
+    resp = requests.get(url, params=params, timeout=10)
+    resp.raise_for_status()
+    results = resp.json()
+
+    if not results:
+        raise ValueError(
+            f"Could not geocode '{city}'. Add it manually to CITY_COORDS with "
+            f"real coordinates (check Google Maps) instead of relying on text search."
+        )
+
+    return results[0]["lat"], results[0]["lon"]
+
+
+def fetch_full_forecast(lat: float, lon: float, api_key: str) -> list:
     """
     Unlike fetch_forecast() (which keeps only the 12:00 reading per day),
     this keeps EVERY 3-hour reading OpenWeatherMap gives us -- we need
     multiple time-of-day readings per day to catch "40°C at 2pm, 30°C at
     6pm" swings that a single daily snapshot would completely miss.
+
+    Called with lat/lon directly (see get_city_coords) rather than a
+    city name string -- this avoids OpenWeatherMap's unreliable
+    name-based city matching entirely.
     """
     url = "https://api.openweathermap.org/data/2.5/forecast"
-    params = {"q": f"{city},PK", "appid": api_key, "units": "metric"}
+    params = {"lat": lat, "lon": lon, "appid": api_key, "units": "metric"}
     resp = requests.get(url, params=params, timeout=10)
     resp.raise_for_status()
     return resp.json()["list"]
 
 
-def build_intraday_plan(forecast_entries: list, df: pd.DataFrame, top_n: int = 3) -> pd.DataFrame:
+def build_intraday_plan(forecast_entries: list, df: pd.DataFrame, top_n: int = 6,
+                          exclude: list = None) -> pd.DataFrame:
     """
     For each 3-hour time slot, combine TWO independent safety checks:
       1. Weather condition (rain/snow -> avoid open/hazardous spots)
@@ -109,6 +164,12 @@ def build_intraday_plan(forecast_entries: list, df: pd.DataFrame, top_n: int = 3
     Both must pass for a slot to be marked outdoor-safe. This mirrors
     exactly what you described: same location, same category, but
     whether it's a good time to go depends on WHEN, not just WHERE.
+
+    top_n defaults to 6 rather than 3 -- enough for a frontend swipe/pick
+    UI to have real options, not just the same 3 names every single call.
+    exclude is a list of destination names to skip (e.g. already
+    visited/dismissed by this user) -- Backend supplies this list based
+    on stored user state; this function just filters against it.
     """
     rows = []
     for entry in forecast_entries:
@@ -122,12 +183,9 @@ def build_intraday_plan(forecast_entries: list, df: pd.DataFrame, top_n: int = 3
         weather_ok_categories = set(weather_rule["ideal_for"]) - set(weather_rule["avoid"])
 
         if heat_tier == "extreme":
-            # Too hot for ANY outdoor activity, no matter the category.
             safe_categories = set(INDOOR_SAFE_CATEGORIES)
             slot_type = "indoor_only_extreme_heat"
         elif heat_tier == "hot":
-            # Warm enough that only water-adjacent/shaded outdoor spots
-            # are reasonable, on top of whatever the weather condition allows.
             heat_tolerant = {"lake", "waterfall", "island"}
             safe_categories = (weather_ok_categories & heat_tolerant) | set(INDOOR_SAFE_CATEGORIES)
             slot_type = "limited_outdoor_hot"
@@ -135,7 +193,16 @@ def build_intraday_plan(forecast_entries: list, df: pd.DataFrame, top_n: int = 3
             safe_categories = weather_ok_categories
             slot_type = "outdoor_ok" if condition in ("clear", "clouds") else "limited_outdoor"
 
-        picks = df[df["category"].isin(safe_categories)]["name"].head(top_n).tolist()
+        candidates = df[df["category"].isin(safe_categories)]
+        if exclude:
+            # Filter out anything the user has already seen/visited, so
+            # repeat queries for the same city surface NEW options instead
+            # of the same fixed top-N every time. Backend owns tracking
+            # WHICH names go in this list (visited/dismissed state) --
+            # we just need to honor it when it's given to us.
+            candidates = candidates[~candidates["name"].isin(exclude)]
+
+        picks = candidates["name"].head(top_n).tolist()
         suggestion = ", ".join(picks) if picks else FALLBACK_MESSAGE
 
         rows.append({
@@ -146,21 +213,43 @@ def build_intraday_plan(forecast_entries: list, df: pd.DataFrame, top_n: int = 3
     return pd.DataFrame(rows)
 
 
-def fetch_forecast(city: str, api_key: str) -> list:
+def haversine_km(lat1, lon1, lat2, lon2) -> float:
     """
-    OpenWeatherMap's free 5-day/3-hour forecast endpoint. We only need
-    ONE reading per day for a v1 scheduler, so we'll pick the midday
-    (12:00) entry for each of the next 5 days -- a reasonable proxy for
-    "what's this day like" without overcomplicating v1.
+    Great-circle distance between two lat/long points, in kilometers.
+    Simple Euclidean distance (treating lat/long like flat x/y coordinates)
+    gets increasingly wrong the further apart two points are, because the
+    Earth is a sphere, not a grid -- haversine accounts for that curvature
+    and is the standard formula for this.
     """
-    url = "https://api.openweathermap.org/data/2.5/forecast"
-    params = {"q": f"{city},PK", "appid": api_key, "units": "metric"}
-    resp = requests.get(url, params=params, timeout=10)
-    resp.raise_for_status()
-    data = resp.json()
+    R = 6371  # Earth's radius in km
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    d_phi = math.radians(lat2 - lat1)
+    d_lambda = math.radians(lon2 - lon1)
 
-    daily = [entry for entry in data["list"] if entry["dt_txt"].endswith("12:00:00")]
-    return daily
+    a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def filter_nearby_destinations(df: pd.DataFrame, center_lat: float, center_lon: float,
+                                 radius_km: float = PROXIMITY_RADIUS_KM) -> pd.DataFrame:
+    """
+    Scope the destination catalog down to places actually near the
+    queried city, before any category/weather filtering happens. This is
+    the fix for the "same results no matter what city" bug -- without
+    this, every query just returns the same top-N-by-category from the
+    entire 69-destination national catalog.
+    """
+    df = df.copy()
+    df["distance_km"] = df.apply(
+        lambda row: haversine_km(center_lat, center_lon, row["latitude"], row["longitude"]), axis=1
+    )
+    nearby = df[df["distance_km"] <= radius_km].sort_values("distance_km")
+
+    if len(nearby) == 0:
+        # No honest fallback here either -- better to say so than silently
+        # return unrelated destinations from the other end of the country.
+        print(f"No destinations found within {radius_km}km of ({center_lat}, {center_lon}).")
+    return nearby
 
 
 def classify_condition(weather_main: str) -> str:
@@ -175,102 +264,81 @@ def classify_condition(weather_main: str) -> str:
     return "clear"
 
 
-def build_day_plan(forecast_days: list, df: pd.DataFrame, top_n: int = 3) -> pd.DataFrame:
+def summarize_day(day_df: pd.DataFrame) -> dict:
     """
-    For each forecast day, work out which condition bucket it falls into,
-    then filter the destination catalog down to categories rated "ideal"
-    for that condition (and explicitly exclude "avoid" categories, even
-    if they'd otherwise sneak through).
-
-    On rain/snow days specifically, if the catalog doesn't have enough
-    genuinely indoor attractions near the plan, we fall back to an honest
-    "stay indoors" message instead of forcing weak matches.
+    Collapse a day's worth of time-slots into one summary line for
+    calendar/overview UI, without re-implementing any weather/heat logic
+    -- it just reads the slot_type labels build_intraday_plan already produced.
     """
-    rows = []
-    for i, entry in enumerate(forecast_days, start=1):
-        date = entry["dt_txt"].split(" ")[0]
-        temp = entry["main"]["temp"]
-        condition = classify_condition(entry["weather"][0]["main"])
-        rule = CATEGORY_WEATHER_RULES[condition]
+    date = day_df["date"].iloc[0]
+    outdoor_slots = day_df[day_df["slot_type"] == "outdoor_ok"]
+    avg_temp = round(day_df["temp_c"].mean(), 1)
 
-        suitable = df[df["category"].isin(rule["ideal_for"]) & ~df["category"].isin(rule["avoid"])]
-        picks = suitable["name"].head(top_n).tolist()
+    if len(outdoor_slots) == len(day_df):
+        summary = "Good outdoor day all day."
+    elif len(outdoor_slots) == 0:
+        summary = "Not a good outdoor day — stay indoors / rest."
+    else:
+        good_times = ", ".join(outdoor_slots["time"].tolist())
+        summary = f"Mixed day — best outdoor windows: {good_times}."
 
-        is_bad_weather = condition in ("rain", "snow")
-        if is_bad_weather and len(picks) < top_n:
-            day_type = "indoor_rest"
-            suggestion = FALLBACK_MESSAGE
-        elif is_bad_weather:
-            day_type = "limited_outdoor"
-            suggestion = ", ".join(picks)
-        else:
-            day_type = "outdoor"
-            suggestion = ", ".join(picks) if picks else FALLBACK_MESSAGE
+    # Surface the single best pick from the best available slot, for a
+    # "featured suggestion" on the day card.
+    best_slot = day_df.loc[day_df["slot_type"].eq("outdoor_ok"), "suggestion"]
+    featured = best_slot.iloc[0] if len(best_slot) > 0 else day_df["suggestion"].iloc[0]
 
-        rows.append({
-            "day": i, "date": date, "condition": condition, "temp_c": temp,
-            "day_type": day_type, "suggested_activities": suggestion,
-        })
-
-    return pd.DataFrame(rows)
+    return {"date": date, "avg_temp_c": avg_temp, "summary": summary, "featured_suggestion": featured}
 
 
-def build_day_plan_mock(df: pd.DataFrame) -> pd.DataFrame:
+def build_day_plan(forecast_entries: list, df: pd.DataFrame) -> pd.DataFrame:
     """
-    Offline fallback so this script (and this concept) can be demoed and
-    understood without needing live internet/API access -- useful for
-    testing the SCHEDULING LOGIC in isolation from the WEATHER FETCHING.
-    Swap this out for build_day_plan() once you're running with a real key.
+    Daily summary view for calendar-style UI (e.g. "Day 1: mostly clear,
+    best outdoor window 9am-11am"). This is now a ROLLUP of the intraday
+    plan, not a separate rule-check -- so heat/weather logic only lives
+    in one place (build_intraday_plan) and can't drift out of sync.
     """
-    mock_forecast = [
-        {"dt_txt": "2026-09-01 12:00:00", "main": {"temp": 18}, "weather": [{"main": "Clear"}]},
-        {"dt_txt": "2026-09-02 12:00:00", "main": {"temp": 15}, "weather": [{"main": "Clouds"}]},
-        {"dt_txt": "2026-09-03 12:00:00", "main": {"temp": 12}, "weather": [{"main": "Rain"}]},
-        {"dt_txt": "2026-09-04 12:00:00", "main": {"temp": 5},  "weather": [{"main": "Snow"}]},
-        {"dt_txt": "2026-09-05 12:00:00", "main": {"temp": 20}, "weather": [{"main": "Clear"}]},
-    ]
-    return build_day_plan(mock_forecast, df)
+    intraday = build_intraday_plan(forecast_entries, df)
+    summaries = [summarize_day(day_df) for _, day_df in intraday.groupby("date")]
+    return pd.DataFrame(summaries)
 
 
-def build_intraday_plan_mock(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Offline demo matching your exact scenario: a Monday where it's 40°C
-    at midday and cools to 30°C by evening. Notice the SAME day, SAME
-    weather condition (clear), but a DIFFERENT recommendation depending
-    on the hour -- that's the whole point of this feature.
-    """
-    mock_entries = [
+def build_mixed_week_mock() -> list:
+    """A 2-day mock spanning clear/hot, rain, and cool evening -- enough
+    variety to see build_day_plan's rollup summaries differ day to day."""
+    return [
         {"dt_txt": "2026-07-06 09:00:00", "main": {"temp": 32}, "weather": [{"main": "Clear"}]},
-        {"dt_txt": "2026-07-06 12:00:00", "main": {"temp": 38}, "weather": [{"main": "Clear"}]},
+        {"dt_txt": "2026-07-06 12:00:00", "main": {"temp": 39}, "weather": [{"main": "Clear"}]},
         {"dt_txt": "2026-07-06 15:00:00", "main": {"temp": 40}, "weather": [{"main": "Clear"}]},
         {"dt_txt": "2026-07-06 18:00:00", "main": {"temp": 30}, "weather": [{"main": "Clear"}]},
-        {"dt_txt": "2026-07-06 21:00:00", "main": {"temp": 26}, "weather": [{"main": "Clear"}]},
+        {"dt_txt": "2026-07-07 09:00:00", "main": {"temp": 24}, "weather": [{"main": "Rain"}]},
+        {"dt_txt": "2026-07-07 12:00:00", "main": {"temp": 25}, "weather": [{"main": "Rain"}]},
+        {"dt_txt": "2026-07-07 15:00:00", "main": {"temp": 26}, "weather": [{"main": "Clouds"}]},
+        {"dt_txt": "2026-07-07 18:00:00", "main": {"temp": 23}, "weather": [{"main": "Clear"}]},
     ]
-    return build_intraday_plan(mock_entries, df)
 
 
-def main():
+def main(city: str = "Hunza"):
     df = pd.read_csv(DESTINATIONS_PATH)
     api_key = os.getenv("WEATHER_API_KEY")
 
     if api_key:
-        print("--- Using LIVE forecast for Skardu (daily) ---")
-        forecast_days = fetch_forecast("Skardu", api_key)
-        plan = build_day_plan(forecast_days, df)
-        print(plan.to_string(index=False))
-
-        print("\n--- Using LIVE forecast for Skardu (intraday, heat-aware) ---")
-        full_entries = fetch_full_forecast("Skardu", api_key)
-        intraday_plan = build_intraday_plan(full_entries, df)
-        print(intraday_plan.to_string(index=False))
+        city_lat, city_lon = get_city_coords(city, api_key)
+        print(f"Resolved '{city}' to coordinates ({city_lat}, {city_lon})\n")
+        entries = fetch_full_forecast(city_lat, city_lon, api_key)
     else:
-        print("--- No WEATHER_API_KEY found -- using MOCK forecast for demonstration ---")
-        plan = build_day_plan_mock(df)
-        print(plan.to_string(index=False))
+        print(f"--- No WEATHER_API_KEY found -- using MOCK forecast for demonstration (city: {city}) ---\n")
+        entries = build_mixed_week_mock()
+        city_lat, city_lon = CITY_COORDS.get(city, CITY_COORDS["Skardu"])
 
-        print("\n--- MOCK intraday heat-aware plan (hot summer Monday) ---")
-        intraday_plan = build_intraday_plan_mock(df)
-        print(intraday_plan.to_string(index=False))
+    nearby_df = filter_nearby_destinations(df, city_lat, city_lon)
+    print(f"Found {len(nearby_df)} destinations within {PROXIMITY_RADIUS_KM}km of {city}: "
+          f"{', '.join(nearby_df['name'].head(8).tolist())}{' ...' if len(nearby_df) > 8 else ''}\n")
+
+    print("--- Daily summary (calendar view) ---")
+    print(build_day_plan(entries, nearby_df).to_string(index=False))
+
+    print("\n--- Intraday detail (heat + weather aware) ---")
+    print(build_intraday_plan(entries, nearby_df).to_string(index=False))
 
 
 if __name__ == "__main__":

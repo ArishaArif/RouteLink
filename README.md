@@ -33,6 +33,7 @@ An AI-powered travel planning and hazard-detection application built to tackle s
 │   ├── scripts/
 │   │   ├── db-sync.js              # npm run db:sync
 │   │   ├── db-migrate-day3.js      # enum backfill migration
+│   │   ├── db-migrate-day4.js      # itinerary schema migration (slot/heat tier, marketplace fields)
 │   │   ├── smoke-test.js           # npm run smoke
 │   │   ├── smoke-day3.js           # npm run smoke:day3
 │   │   └── smoke-day4.js           # npm run smoke:day4
@@ -115,9 +116,11 @@ Read that before integrating from the ML pipeline or the mobile app.
    ```bash
    createdb Routelink
    ```
-5. Sync models → tables:
+5. Sync models → tables, then apply the Day 3/4 migrations:
    ```bash
    npm run db:sync
+   node scripts/db-migrate-day3.js
+   node scripts/db-migrate-day4.js
    ```
 6. Run the server:
    ```bash
@@ -133,6 +136,34 @@ curl http://localhost:5000/health
 # { "status": "ok", "db": "connected" }
 ```
 
+### Mobile Setup
+
+1. Navigate to the mobile app directory:
+   ```bash
+   cd RouteLinkMobile
+   ```
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Create your local env file:
+   ```bash
+   New-Item .env   # Windows PowerShell
+   # or: touch .env   # macOS/Linux
+   ```
+   Add:
+   ```
+   EXPO_PUBLIC_MAPBOX_TOKEN=your_mapbox_token_here
+   ```
+4. Start the app:
+   ```bash
+   npm start
+   ```
+5. Open it:
+   - Press `a` for Android emulator (requires Android Studio set up)
+   - Or scan the QR code with Expo Go on a physical device
+   - **Note:** this project uses Expo SDK 57. If Expo Go on your phone shows an "incompatible version" error, the App Store/Play Store build may not have caught up yet — use an Android emulator as a fallback until it does.
+
 ### Environment variables
 
 | Variable | Required | Notes |
@@ -145,6 +176,7 @@ curl http://localhost:5000/health
 | `JWT_EXPIRES_IN` | no | Defaults to `7d` |
 | `ML_SERVICE_KEY` | yes | Shared secret for `X-Ingest-Key`. Guards hazard ingest and itinerary writes |
 | `HAZARD_INGEST_KEY` | no | Legacy name for the same secret, still honoured as a fallback |
+| `EXPO_PUBLIC_MAPBOX_TOKEN` | yes (Mobile) | Mapbox access token for the map screen — see Mobile Setup above |
 
 ### Test suites
 
