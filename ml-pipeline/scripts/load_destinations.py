@@ -53,7 +53,13 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()  # never mutate the original DataFrame in place -- avoids silent bugs
     df["name"] = df["name"].str.strip()
     df["category"] = df["category"].str.strip().str.lower()
-    df["province"] = df["province"].str.strip().str.replace("−", "-", regex=False)
+    df["province"] = df["province"].str.strip()
+    # The source CSV uses two different dash characters for the same
+    # province ("Gilgit-Baltistan" vs "Gilgit−Baltistan" -- a hyphen vs a
+    # minus sign, visually identical but different Unicode characters).
+    # Left unfixed, this silently splits one province into two groups
+    # anywhere you filter/group by province. Normalize to a plain hyphen.
+    df["province"] = df["province"].str.replace("\u2212", "-", regex=False)
     df["description"] = df["description"].str.strip()
 
     # Drop any row missing essential fields -- a destination with no name/category is unusable
