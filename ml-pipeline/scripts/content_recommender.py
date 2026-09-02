@@ -64,12 +64,18 @@ def build_similarity_matrix(profiles: pd.Series):
     return similarity_matrix, vectorizer
 
 
-def recommend_similar(df: pd.DataFrame, similarity_matrix, name: str, top_n: int = 5) -> pd.DataFrame:
+def recommend_similar(df: pd.DataFrame, similarity_matrix, name: str, top_n: int = 8,
+                       exclude: list = None) -> pd.DataFrame:
     """
     'Users who planned a trip to X might also like...' -- find the
     destination's row index, look up its similarity scores against every
     other destination, and return the highest-scoring ones (excluding
-    itself).
+    itself, and excluding anything in `exclude` -- e.g. destinations this
+    user has already visited or dismissed, as tracked by Backend).
+
+    top_n defaults to 8 rather than a tight 3-5 -- a frontend swipe/pick
+    UI needs a real pool of candidates to page through, not just enough
+    to fill one screen once.
     """
     matches = df.index[df["name"].str.lower() == name.lower()]
     if len(matches) == 0:
@@ -78,26 +84,35 @@ def recommend_similar(df: pd.DataFrame, similarity_matrix, name: str, top_n: int
 
     idx = matches[0]
     scores = list(enumerate(similarity_matrix[idx]))
+    scores = sorted(scores, key=lambda x: x[1], reverse=True)
 
-    # Sort by score descending, skip the first result (a destination is
-    # always most similar to itself -- score 1.0 -- so we discard index 0).
-    scores = sorted(scores, key=lambda x: x[1], reverse=True)[1 : top_n + 1]
+    exclude_set = set(n.lower() for n in exclude) if exclude else set()
+    results = []
+    for i, score in scores:
+        candidate_name = df.iloc[i]["name"]
+        if i == idx or candidate_name.lower() in exclude_set:
+            continue
+        results.append((i, score))
+        if len(results) == top_n:
+            break
 
-    result_indices = [i for i, score in scores]
-    result_scores = [round(score, 3) for i, score in scores]
+    result_indices = [i for i, score in results]
+    result_scores = [round(score, 3) for i, score in results]
 
     result = df.iloc[result_indices][["name", "category", "province"]].copy()
     result["similarity_score"] = result_scores
     return result
 
 
-def recommend_by_preferences(df: pd.DataFrame, preferred_categories: list, top_n: int = 5) -> pd.DataFrame:
+def recommend_by_preferences(df: pd.DataFrame, preferred_categories: list, top_n: int = 8,
+                               exclude: list = None) -> pd.DataFrame:
     """
     The "enter your preferences" flow: given a list of categories a user
     says they like (e.g. ["lake", "meadow"]), score every destination by
     how many of its words overlap with a synthetic query built from those
     categories, using the SAME TF-IDF vocabulary as the similarity matrix
-    so the comparison is apples-to-apples.
+    so the comparison is apples-to-apples. `exclude` filters out anything
+    already visited/dismissed, same convention as recommend_similar.
     """
     vectorizer = TfidfVectorizer(stop_words="english")
     profiles = build_content_profile(df)
@@ -110,6 +125,11 @@ def recommend_by_preferences(df: pd.DataFrame, preferred_categories: list, top_n
 
     result = df[["name", "category", "province"]].copy()
     result["match_score"] = [round(s, 3) for s in scores]
+
+    if exclude:
+        exclude_set = set(n.lower() for n in exclude)
+        result = result[~result["name"].str.lower().isin(exclude_set)]
+
     result = result.sort_values("match_score", ascending=False).head(top_n)
     return result
 
