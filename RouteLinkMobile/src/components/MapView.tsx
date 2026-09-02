@@ -5,11 +5,18 @@ import { WebView } from 'react-native-webview';
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN;
 
 type Props = {
-  latitude?: number;
-  longitude?: number;
+  originLat?: number;
+  originLng?: number;
+  destLat?: number;
+  destLng?: number;
 };
 
-export default function MapView({ latitude = 33.6844, longitude = 73.0479 }: Props) {
+export default function MapView({
+  originLat = 36.3167,
+  originLng = 74.6500,
+  destLat = 35.9208,
+  destLng = 74.3144,
+}: Props) {
   const html = `
     <!DOCTYPE html>
     <html>
@@ -26,13 +33,54 @@ export default function MapView({ latitude = 33.6844, longitude = 73.0479 }: Pro
       <div id="map"></div>
       <script>
         mapboxgl.accessToken = '${MAPBOX_TOKEN}';
+
+        const origin = [${originLng}, ${originLat}];
+        const destination = [${destLng}, ${destLat}];
+
         const map = new mapboxgl.Map({
           container: 'map',
           style: 'mapbox://styles/mapbox/streets-v12',
-          center: [${longitude}, ${latitude}],
-          zoom: 12
+          center: origin,
+          zoom: 9
         });
-        new mapboxgl.Marker().setLngLat([${longitude}, ${latitude}]).addTo(map);
+
+        new mapboxgl.Marker({ color: '#2b8a3e' }).setLngLat(origin).addTo(map);
+        new mapboxgl.Marker({ color: '#e03131' }).setLngLat(destination).addTo(map);
+
+        async function drawRoute() {
+          const query = await fetch(
+            \`https://api.mapbox.com/directions/v5/mapbox/driving/\${origin[0]},\${origin[1]};\${destination[0]},\${destination[1]}?geometries=geojson&access_token=\${mapboxgl.accessToken}\`
+          );
+          const json = await query.json();
+
+          if (!json.routes || json.routes.length === 0) {
+            console.log('No route found');
+            return;
+          }
+
+          const routeGeoJSON = {
+            type: 'Feature',
+            properties: {},
+            geometry: json.routes[0].geometry
+          };
+
+          map.on('load', () => {
+            map.addSource('route', { type: 'geojson', data: routeGeoJSON });
+            map.addLayer({
+              id: 'route',
+              type: 'line',
+              source: 'route',
+              layout: { 'line-join': 'round', 'line-cap': 'round' },
+              paint: { 'line-color': '#1971c2', 'line-width': 5 }
+            });
+
+            const bounds = new mapboxgl.LngLatBounds();
+            routeGeoJSON.geometry.coordinates.forEach(coord => bounds.extend(coord));
+            map.fitBounds(bounds, { padding: 40 });
+          });
+        }
+
+        drawRoute();
       </script>
     </body>
     </html>
@@ -52,7 +100,7 @@ export default function MapView({ latitude = 33.6844, longitude = 73.0479 }: Pro
 const styles = StyleSheet.create({
   container: {
     width: '100%',
-    height: 180,
+    height: 220,
     borderRadius: 12,
     overflow: 'hidden',
   },
