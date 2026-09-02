@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import MapViewComponent from '../components/MapView';
 
 export default function SOSScreen() {
   return (
@@ -11,12 +12,9 @@ export default function SOSScreen() {
       </TouchableOpacity>
 
       <Text style={styles.caption}>Sends instant location alert to rescue & emergency contacts</Text>
-
-      {/* Map placeholder - will be replaced with live Google Maps view once API key is active */}
-      <View style={styles.mapPlaceholder}>
-        <Text style={styles.mapPlaceholderText}>Map loading...</Text>
-      </View>
-
+	{/* Live map - Mapbox via WebView */}
+<MapViewComponent />
+      
       {/* Route/nearest service info panel - fills in once map is live */}
       <View style={styles.infoPanel}>
         <Text style={styles.infoLabel}>Nearest Help:</Text>
