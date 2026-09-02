@@ -186,9 +186,12 @@ With the server running:
 npm test           # module + router resolution
 npm run smoke      # auth, trips, itinerary placeholder, ownership
 npm run smoke:day3 # guides, bookings, chat, hazard ingest
-
----
+npm run smoke:day4 # itinerary write contract, marketplace hand-off, write auth
 ```
+## ⚠️ Not yet built 
+`GET /api/sos/nearest` — the data-source decision is recorded in
+[`backend/SOS_DECISION.md`](backend/SOS_DECISION.md), but the endpoint does not exist.
+Mobile should not integrate against it yet.
 
 ## 📱 RouteLink Mobile
 
@@ -288,9 +291,3 @@ RouteLinkMobile/
 > **SOS note:** `GET /api/sos/nearest` is not yet built on the backend (see `backend/SOS_DECISION.md`). Do not integrate the SOS screen against it yet.
 npm run smoke:day4 # itinerary write contract, marketplace hand-off, write auth
 ```
-
-## ⚠️ Not yet built
-
-`GET /api/sos/nearest` — the data-source decision is recorded in
-[`backend/SOS_DECISION.md`](backend/SOS_DECISION.md), but the endpoint does not exist.
-Mobile should not integrate against it yet.
