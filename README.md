@@ -188,6 +188,7 @@ npm run smoke      # auth, trips, itinerary placeholder, ownership
 npm run smoke:day3 # guides, bookings, chat, hazard ingest
 
 ---
+```
 
 ## 📱 RouteLink Mobile Client — Role A (Mobile Lead)
 
