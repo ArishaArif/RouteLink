@@ -12,18 +12,39 @@ Run: python scripts/hazard_classifier.py
 """
 
 import pandas as pd
+import joblib
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.metrics import accuracy_score, classification_report
 
 DATA_PATH = "data/raw/hazard_tweets_train.csv"
+PAKISTAN_EXAMPLES_PATH = "data/raw/pakistan_hazard_examples.csv"
+MODEL_PATH = "models/hazard_classifier.joblib"
+VECTORIZER_PATH = "models/hazard_vectorizer.joblib"
 
 
 def load_data(path: str) -> pd.DataFrame:
     df = pd.read_csv(path)
     print(f"Loaded {len(df)} labeled examples")
     print(df["target"].value_counts().rename({1: "hazard", 0: "not_hazard"}))
+    return df
+
+
+def load_pakistan_examples(path: str) -> pd.DataFrame:
+    """
+    The base dataset (7,613 tweets) is generic/global disaster language --
+    it's never seen "Karakoram," "Khunjerab," or the specific vocabulary
+    of Northern Pakistan tourism, which is exactly why it got "Khunjerab
+    Pass closed due to snowfall" wrong (false negative) and "Hunza Valley
+    apricot festival" wrong (false positive) in testing. A small, focused
+    set of hand-labeled Pakistan-specific examples, blended into training,
+    shifts the model's vocabulary toward the domain it actually needs to
+    work in -- even 30 good examples measurably help, because they're
+    dense with exactly the words/phrasing real hazard alerts will use.
+    """
+    df = pd.read_csv(path)
+    print(f"Loaded {len(df)} Pakistan-specific hand-labeled examples")
     return df
 
 
@@ -41,7 +62,14 @@ def vectorize_text(train_texts, test_texts):
     tweets specifically -> high TF-IDF score -> strong signal for the model.
     "the" appears everywhere -> near-zero score -> ignored.
     """
-    vectorizer = TfidfVectorizer(stop_words="english", max_features=500)
+    # max_features was 500 back when this trained on 20 mock rows -- with
+    # 7,644 real examples now, that cap silently excluded domain-specific
+    # words entirely (verified: "khunjerab", "snowfall", "closed" weren't
+    # even IN the vocabulary the model could use, regardless of how the
+    # model weighted them). min_df=2 is a better cap here: keep any word
+    # that appears in at least 2 documents (filters pure noise/typos)
+    # without an arbitrary top-N ceiling that scales badly as data grows.
+    vectorizer = TfidfVectorizer(stop_words="english", min_df=2)
 
     # fit_transform on TRAIN: learn the vocabulary AND convert train texts to vectors
     X_train = vectorizer.fit_transform(train_texts)
@@ -73,15 +101,21 @@ def train_and_evaluate(X_train, X_test, y_train, y_test):
 
 
 def predict_new_examples(model, vectorizer):
-    """Sanity-check the model on brand-new sentences it has never seen."""
+    """
+    Sanity-check on brand-new sentences the model has never seen --
+    including the exact two cases the OLD model got backwards during
+    real-world testing, so we get direct before/after proof this fix worked.
+    """
     new_texts = [
         "Road blocked near Chilas due to sudden landslide",
         "Had a wonderful time hiking in Fairy Meadows today",
+        "Hunza Valley apricot festival draws record crowds",  # old model: false positive (hazard)
+        "Khunjerab Pass closed due to heavy snowfall",  # old model: false negative (not hazard)
     ]
     X_new = vectorizer.transform(new_texts)
     preds = model.predict(X_new)
 
-    print("\n--- Predictions on new, unseen text ---")
+    print("\n--- Predictions on new, unseen text (includes prior failure cases) ---")
     for text, pred in zip(new_texts, preds):
         label = "HAZARD" if pred == 1 else "not hazard"
         print(f"[{label}] {text}")
@@ -89,6 +123,16 @@ def predict_new_examples(model, vectorizer):
 
 def main():
     df = load_data(DATA_PATH)
+    pk_df = load_pakistan_examples(PAKISTAN_EXAMPLES_PATH)
+
+    # Concatenate the generic base dataset with the Pakistan-specific
+    # examples into one training set. We're not replacing the base data --
+    # the 7,613 generic tweets still teach broad "what does hazard
+    # language sound like" patterns; the 30 local examples sharpen that
+    # toward our actual domain vocabulary.
+    df = pd.concat([df[["text", "target"]], pk_df[["text", "target"]]], ignore_index=True)
+    print(f"\nCombined training set: {len(df)} total examples")
+    print(df["target"].value_counts().rename({1: "hazard", 0: "not_hazard"}))
 
     # Split into train (80%) and test (20%) sets. The model only ever
     # learns from train; test simulates "new data it's never seen" so
@@ -104,6 +148,14 @@ def main():
     X_train, X_test, vectorizer = vectorize_text(X_train_text, X_test_text)
     model = train_and_evaluate(X_train, X_test, y_train, y_test)
     predict_new_examples(model, vectorizer)
+
+    # Persist both the trained model AND the vectorizer that learned the
+    # vocabulary -- you need BOTH to make predictions later. A model
+    # without its matching vectorizer is useless: it expects input
+    # vectors built from the exact same vocabulary it trained on.
+    joblib.dump(model, MODEL_PATH)
+    joblib.dump(vectorizer, VECTORIZER_PATH)
+    print(f"\nSaved model to {MODEL_PATH} and vectorizer to {VECTORIZER_PATH}")
 
 
 if __name__ == "__main__":
