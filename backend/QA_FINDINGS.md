@@ -47,6 +47,8 @@ Ran both smoke tests locally against real DB:
 
 Postman collection fully rebuilt against API_CONTRACT.md §11/§12 — old collection (6/16 passing) replaced. New collection: 21 requests across Health, Auth, Trips, Guides, Bookings, Hazards. All ids auto-captured via test scripts, no hardcoded UUIDs.
 
+https://fa302518-826692.postman.co/workspace/Faizan-Ahmad's-Workspace~d1686dd6-8901-4e52-8517-04daee985e25/request/57856560-0ec29487-9dae-49b7-9a63-36a6fb65e869?action=share&creator=57856560&ctx=documentation
+
 ## No longer open
 - ~~Guide Marketplace routes~~ — built and tested
 - ~~Hazard Alerts routes~~ — built and tested
