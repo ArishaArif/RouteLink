@@ -8,9 +8,7 @@
 
 `Tourist\_Destinations.csv` has no images, and the swipe-card recommendation UI
 
-needs a photo per attraction. Photo sourcing was agreed to be Maps/Integration's
-
-responsibility, since it's a data-lookup problem similar to the Maps/SOS work
+needs a photo per attraction, since it's a data-lookup problem similar to the Maps/SOS work
 
 already happening on that side.
 
