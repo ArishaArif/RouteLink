@@ -188,9 +188,105 @@ npm run smoke      # auth, trips, itinerary placeholder, ownership
 npm run smoke:day3 # guides, bookings, chat, hazard ingest
 npm run smoke:day4 # itinerary write contract, marketplace hand-off, write auth
 ```
-
-## ⚠️ Not yet built
-
+## ⚠️ Not yet built 
 `GET /api/sos/nearest` — the data-source decision is recorded in
 [`backend/SOS_DECISION.md`](backend/SOS_DECISION.md), but the endpoint does not exist.
 Mobile should not integrate against it yet.
+
+## 📱 RouteLink Mobile
+
+The mobile frontend for **RouteLink**, built with **React Native** and **Expo SDK 52** using TypeScript. This section covers ownership, structure, and setup for the `RouteLinkMobile/` module.
+
+### 🎯 Ownership
+
+As Mobile Lead, this repository module tracks all end-to-end user interfaces, navigation flows, and API integrations across the 6-day sprint:
+
+* **Trip Planning & Itinerary:** Weather-integrated day-by-day scheduler with spot exclusion controls ("Already Visited" / "Interested").
+* **Guide Marketplace:** Local guide directory filtering by region, language, and rating with booking request hooks.
+* **Booking Chat:** Real-time messaging UI between travelers and local guide contacts.
+* **Safety & Hazard Alerts:** Top-level alert banner rendering real-time NLP-detected hazards.
+* **Emergency SOS:** Dedicated geolocation panic interface with direct emergency hotlines (Rescue 1122, Tourist Police).
+
+### 📁 Directory Architecture
+
+```text
+RouteLinkMobile/
+├── assets/                      # App branding, icons, splash screens, and static images
+├── src/
+│   ├── components/
+│   │   ├── AttractionCard.tsx   # Interactive card rendering spot details & intraday weather
+│   │   └── HazardBanner.tsx     # Top-level notification banner for active NLP hazards
+│   ├── context/
+│   │   └── TripContext.tsx      # Global React Context for itinerary state & preferences
+│   ├── screens/
+│   │   ├── TripPlannerScreen.tsx      # Destination/duration input & day-by-day scheduler
+│   │   ├── GuideMarketplaceScreen.tsx # Regional guide discovery & booking requests
+│   │   ├── BookingChatScreen.tsx      # Real-time traveler-to-guide message thread UI
+│   │   └── SOSScreen.tsx              # Emergency dispatch screen with GPS coordinates & hotlines
+│   ├── services/
+│   │   └── api.ts               # Unified Axios/Fetch API client & endpoint definitions
+│   └── types/
+│       └── index.ts             # TypeScript interfaces (Trips, Hazards, Guides, Chat)
+├── App.tsx                      # Root navigation tabs (Planner, Guides, Chat, SOS)
+├── app.json                     # Expo app configuration & metadata
+├── index.ts                     # Expo entry point (registerRootComponent)
+├── package.json                 # Mobile dependencies & scripts
+└── tsconfig.json                # TypeScript configuration
+```
+
+### 🚀 Getting Started
+
+**Prerequisites**
+- Node.js: v18+
+- Package Manager: npm (v9+)
+- Expo Go installed on a physical iOS/Android device, OR an Android Studio / iOS Simulator set up locally.
+
+**Local Installation & Running**
+
+1. Navigate to the mobile folder:
+   ```bash
+   cd RouteLinkMobile
+   ```
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Create a `.env` file in `RouteLinkMobile/`:
+   ```bash
+   # Windows PowerShell
+   New-Item .env
+
+   # macOS/Linux
+   touch .env
+   ```
+4. Add required environment keys:
+   ```
+   EXPO_PUBLIC_API_BASE_URL=http://localhost:5000/api
+   EXPO_PUBLIC_MAPBOX_TOKEN=your_mapbox_token_here
+   ```
+5. Start the Expo dev server:
+   ```bash
+   npx expo start
+   ```
+
+**Running on Devices / Emulators**
+- **Android Emulator:** press `a` in the terminal.
+- **iOS Simulator:** press `i` in the terminal (macOS only).
+- **Web Preview:** press `w` in the terminal.
+- **Physical Device:** scan the terminal QR code with Expo Go (Android) or the default Camera app (iOS).
+
+> **Note on Expo SDK version:** ensure Expo Go on physical hardware matches the SDK version this project targets. If a version-mismatch error occurs, use an Android Emulator as the primary demo target instead.
+
+### 🔌 Integrated Endpoint Contracts (`services/api.ts`)
+
+| Feature | Target Endpoint | Purpose |
+| --- | --- | --- |
+| Trips | `POST /api/trips` | Save user destination and trip timeline |
+| Itinerary | `GET /api/trips/:id/itinerary` | Retrieve generated weather & activity schedule |
+| Marketplace | `GET /api/guides` | Fetch available local guides filtered by region |
+| Bookings | `POST /api/bookings` | Submit booking request to a guide |
+| Chat | `POST /api/bookings/:id/messages` | Send messages on a booking thread |
+| Hazards | `GET /api/hazards` | Retrieve active NLP-flagged regional hazards |
+
+> **SOS note:** `GET /api/sos/nearest` is not yet built on the backend (see `backend/SOS_DECISION.md`). Do not integrate the SOS screen against it yet.
+npm run smoke:day4 # itinerary write contract, marketplace hand-off, write auth
