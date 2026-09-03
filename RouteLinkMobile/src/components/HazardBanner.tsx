@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { HazardAlert } from '../types';
 import { api } from '../services/api';
 
@@ -10,6 +10,7 @@ interface HazardBannerProps {
 export const HazardBanner: React.FC<HazardBannerProps> = ({ region }) => {
   const [hazards, setHazards] = useState<HazardAlert[]>([]);
   const [visible, setVisible] = useState(true);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchHazards();
@@ -17,30 +18,20 @@ export const HazardBanner: React.FC<HazardBannerProps> = ({ region }) => {
 
   const fetchHazards = async () => {
     try {
+      setLoading(true);
       const data = await api.getHazards(region);
       setHazards(data);
     } catch (err) {
-      // Mock hazard data if backend feed is empty during development
-      setHazards([
-        {
-          id: '04b8f4e2-1c9d-4a77-9f3e-2b6a5c8d1e99',
-          sourceType: 'nlp_scrape',
-          rawText: 'Landslide reported on KKH near Babusar Pass',
-          hazardType: 'natural_disaster',
-          region: region || 'Hunza Valley',
-          latitude: 35.1234,
-          longitude: 74.5678,
-          severity: 'high',
-          description: 'Landslide blockages near Babusar Top. Travel delayed by 3-4 hours. Use alternate route.',
-          isActive: true,
-          expiresAt: '2026-10-10',
-          createdAt: '2026-10-05',
-        },
-      ]);
+      // Mock hazard data removed. Banner will gracefully hide on failure.
+      setHazards([]);
+    } finally {
+      setLoading(false);
     }
   };
 
-  if (!visible || hazards.length === 0) return null;
+  if (!visible) return null;
+  if (loading) return <ActivityIndicator size="small" color="#F59E0B" style={styles.loader} />;
+  if (hazards.length === 0) return null;
 
   const topHazard = hazards[0];
   const isCritical = topHazard.severity === 'high' || topHazard.severity === 'critical';
@@ -77,4 +68,5 @@ const styles = StyleSheet.create({
   description: { fontSize: 12, color: '#7F1D1D', lineHeight: 16 },
   dismissBtn: { padding: 4 },
   dismissText: { fontSize: 16, color: '#991B1B', fontWeight: 'bold' },
+  loader: { marginTop: 10, alignSelf: 'center' },
 });

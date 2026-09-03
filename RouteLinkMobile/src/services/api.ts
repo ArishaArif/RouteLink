@@ -65,6 +65,16 @@ export const api = {
   },
 
   // --- Marketplace & Hazards ---
+  async getRecommendations(destination: string): Promise<any[]> {
+    const res = await fetch(`${BASE_URL}/api/recommendations?destination=${encodeURIComponent(destination)}`, {
+      method: 'GET',
+      headers: getHeaders(),
+    });
+    if (!res.ok) throw new Error(`Failed to fetch recommendations: ${res.statusText}`);
+    const data = await res.json();
+    // Assuming backend returns { recommendations: [...] } or just the array
+    return data.recommendations || data; 
+  },
   async getGuides(region?: string): Promise<Guide[]> {
     const url = region ? `${BASE_URL}/api/guides?region=${encodeURIComponent(region)}` : `${BASE_URL}/api/guides`;
     const res = await fetch(url, { headers: getHeaders() });
@@ -99,8 +109,6 @@ export const api = {
   },
 
   // --- Exclusion / Recommendation Refinement ---
-  // Fixed 2026-09-03: was calling a made-up endpoint (/api/users/visited-spots)
-  // that never existed. Real endpoint per API_CONTRACT.md §18, tested and confirmed.
   async markDestinationState(destinationName: string, status: 'visited' | 'dismissed'): Promise<{ success: boolean }> {
     const res = await fetch(`${BASE_URL}/api/users/me/destination-state`, {
       method: 'POST',

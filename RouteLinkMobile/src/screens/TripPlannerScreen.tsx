@@ -1,99 +1,54 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet, Alert } from 'react-native';
 import { useTrip } from '../context/TripContext';
 import { AttractionCard } from '../components/AttractionCard';
 import { AttractionSpot } from '../types';
 import { api } from '../services/api';
 
-// Mock attraction pool (Will be replaced by live GET /api/recommendations responses)
-const MOCK_ATTRACTION_POOL: AttractionSpot[] = [
-  {
-    id: 'b1a2c3d4-0001-4000-8000-000000000001',
-    name: 'Attabad Lake',
-    location: 'Hunza Valley',
-    latitude: 36.3362,
-    longitude: 74.8642,
-    description: 'Turquoise blue lake formed by a landslide, perfect for boating and jet skiing.',
-    forecasts: [
-      {
-        time: '12:00 PM',
-        temperatureC: 22,
-        condition: 'Sunny',
-        slotType: 'outdoor_ok',
-        recommendationSummary: 'Ideal for boating between 11 AM - 3 PM.',
-        inDepthAnalysis: 'Clear skies with mild winds. High UV index; wear sunscreen.',
-      },
-    ],
-  },
-  {
-    id: 'b1a2c3d4-0002-4000-8000-000000000002',
-    name: 'Passu Cones Viewpoint',
-    location: 'Passu, Hunza',
-    latitude: 36.4522,
-    longitude: 74.8812,
-    description: 'Iconic cathedral-like mountain peaks along the Karakoram Highway.',
-    forecasts: [
-      {
-        time: '03:00 PM',
-        temperatureC: 19,
-        condition: 'Partly Cloudy',
-        slotType: 'outdoor_ok',
-        recommendationSummary: 'Best lighting for photography in late afternoon.',
-        inDepthAnalysis: 'Temperatures drop rapidly after sunset around 5:30 PM.',
-      },
-    ],
-  },
-  {
-    id: 'b1a2c3d4-0003-4000-8000-000000000003',
-    name: 'Baltit Fort',
-    location: 'Karimabad, Hunza',
-    latitude: 36.3256,
-    longitude: 74.6644,
-    description: '700-year-old ancient fort offering panoramic views of Hunza Valley.',
-    forecasts: [
-      {
-        time: '06:00 PM',
-        temperatureC: 32,
-        condition: 'Heatwave Warning',
-        slotType: 'indoor_rest',
-        recommendationSummary: 'Wait until evening; heavy midday direct sunlight.',
-        inDepthAnalysis: 'Extreme heat tier detected. Indoor museum tour advised until peak heat dissipates.',
-      },
-    ],
-  },
-];
-
 export const TripPlannerScreen = () => {
   const { destination, duration, itinerary, isLoading, error, setDestination, setDuration, generateItinerary } = useTrip();
-  const [attractions, setAttractions] = useState<AttractionSpot[]>(MOCK_ATTRACTION_POOL);
+  const [attractions, setAttractions] = useState<AttractionSpot[]>([]);
+  const [isLoadingAttractions, setIsLoadingAttractions] = useState(false);
+
+  // Trigger live fetch when destination is updated
+  useEffect(() => {
+    if (destination) {
+      fetchLiveRecommendations();
+    }
+  }, [destination]);
+
+  const fetchLiveRecommendations = async () => {
+    try {
+      setIsLoadingAttractions(true);
+      const data = await api.getRecommendations(destination); 
+      setAttractions(data);
+    } catch (err: any) {
+      Alert.alert('Error', 'Could not load live recommendations.');
+    } finally {
+      setIsLoadingAttractions(false);
+    }
+  };
 
   const handleMarkVisited = async (spotId: string) => {
     const spot = attractions.find((item) => item.id === spotId);
-
-    // Optimistic UI update: remove card locally immediately
     setAttractions((prev) => prev.filter((item) => item.id !== spotId));
 
     if (!spot) return;
 
     try {
-      // Real call to POST /api/users/me/destination-state (see api.ts).
       await api.markDestinationState(spot.name, 'visited');
     } catch (err: any) {
       Alert.alert('Notice', 'Marked visited locally. Will retry syncing when backend is reachable.');
     }
   };
 
+  /*
+  // Temporarily disabled due to API contract mismatch (Backend only supports 'visited' | 'dismissed')
   const handleMarkInterested = (spotId: string) => {
-    // NOTE: intentionally NOT calling markDestinationState here.
-    // The backend only supports 'visited' | 'dismissed' (API_CONTRACT.md §18) —
-    // both of which exclude a destination from future recommendations.
-    // "Interested" means the opposite (the user wants to keep seeing/planning it),
-    // so there's no correct status to send yet. This needs a real decision with
-    // Backend/ML (e.g. a third 'interested' status, or a separate wishlist list)
-    // rather than silently miswiring it to 'dismissed'.
     Alert.alert('Saved!', 'Added to your trip interest list.');
     setAttractions((prev) => prev.filter((item) => item.id !== spotId));
   };
+  */
 
   return (
     <ScrollView style={styles.container}>
@@ -112,16 +67,20 @@ export const TripPlannerScreen = () => {
         {error && <Text style={styles.errorText}>{error}</Text>}
       </View>
 
-      {/* Swipeable Recommendations Deck */}
-      {attractions.length > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.sectionHeader}>Recommended Attractions ({attractions.length} Available)</Text>
-          <AttractionCard
-            spot={attractions[0]}
-            onMarkVisited={handleMarkVisited}
-            onMarkInterested={handleMarkInterested}
-          />
-        </View>
+      {/* Swipeable Recommendations Deck with Live Data */}
+      {isLoadingAttractions ? (
+        <ActivityIndicator size="large" color="#007AFF" style={styles.loader} />
+      ) : (
+        attractions.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionHeader}>Recommended Attractions ({attractions.length} Available)</Text>
+            <AttractionCard
+              spot={attractions[0]}
+              onMarkVisited={handleMarkVisited}
+              // onMarkInterested={handleMarkInterested} <-- HIDDEN UNTIL BACKEND FIX
+            />
+          </View>
+        )
       )}
 
       {/* Dynamic Itinerary Days */}
@@ -171,4 +130,5 @@ const styles = StyleSheet.create({
   activityRow: { marginBottom: 6, paddingLeft: 8 },
   time: { fontSize: 12, color: '#666', fontWeight: '600' },
   actTitle: { fontSize: 14, fontWeight: 'bold' },
+  loader: { marginVertical: 20 },
 });
