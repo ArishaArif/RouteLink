@@ -82,6 +82,36 @@ FALLBACK_MESSAGE = (
     "(see Guide Marketplace for verified options)."
 )
 
+# --- Backend integration (per API_CONTRACT.md §5) ---
+MODEL_VERSION = "heat-sched-v0.1.0"
+
+# Contract §3: heatTier is a Postgres enum with exactly these 5 values.
+# Our own classify_heat() only distinguishes 3 internal tiers (comfortable/
+# hot/extreme) -- that internal granularity stays as-is (it's what drives
+# build_intraday_plan's actual safety logic below), this table is ONLY the
+# translation applied right before a payload leaves for the backend, so a
+# stray "comfortable" never reaches PUT /api/trips/:id/itinerary and gets a
+# 400 back for an unrecognized enum value.
+HEAT_TIER_TO_CONTRACT = {
+    "comfortable": "mild",
+    "hot": "hot",
+    "extreme": "extreme",
+}
+
+# Contract §3: slotType is a separate enum (outdoor_active | outdoor_light |
+# indoor_rest | travel | mixed) that shares no values with our internal
+# slot_type labels (outdoor_ok / limited_outdoor / limited_outdoor_hot /
+# indoor_only_extreme_heat). Same approach: internal labels are untouched,
+# this table only translates outgoing payloads.
+SLOT_TYPE_TO_CONTRACT = {
+    "outdoor_ok": "outdoor_active",
+    "limited_outdoor": "outdoor_light",
+    "limited_outdoor_hot": "outdoor_light",
+    "indoor_only_extreme_heat": "indoor_rest",
+}
+
+HAZARD_ALERTS_PATH = "data/processed/hazard_alerts.csv"
+
 # --- Heat safety tiers (matters most Jun-Aug in Pakistan) ---
 # Rain/snow are about avoiding hazard exposure; heat is about avoiding
 # heatstroke risk. A "clear, sunny" day is exactly when heat becomes
@@ -305,6 +335,168 @@ def build_day_plan(forecast_entries: list, df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(summaries)
 
 
+def map_heat_tier(internal_tier: str) -> str:
+    """Translate our internal heat tier to the contract's §3 enum. Unknown
+    input maps to None rather than guessing -- an omitted heatTier is valid
+    per §3 ('nullable at the day level'); a made-up enum value is not."""
+    return HEAT_TIER_TO_CONTRACT.get(internal_tier)
+
+
+def map_slot_type(internal_slot_type: str) -> str:
+    """Translate our internal slot_type to the contract's §3 enum."""
+    return SLOT_TYPE_TO_CONTRACT.get(internal_slot_type)
+
+
+def load_hazard_context(region_names: list) -> dict:
+    """
+    Build the day-level hazardContext object from hazard_news_scraper.py's
+    output (data/processed/hazard_alerts.csv), scoped to the destinations
+    actually in play for this itinerary. Per §2, hazardContext is free-form
+    JSON that ML owns and the backend stores unchanged -- so this shape can
+    evolve without a backend deploy.
+
+    Falls back to a zero-alert object (not an error) if the hazard file
+    doesn't exist yet -- weather scheduling shouldn't fail just because the
+    hazard pipeline hasn't been run in this session.
+    """
+    try:
+        alerts_df = pd.read_csv(HAZARD_ALERTS_PATH)
+    except FileNotFoundError:
+        return {"activeAlerts": 0}
+
+    if len(alerts_df) == 0 or "matched_destinations" not in alerts_df.columns:
+        return {"activeAlerts": 0}
+
+    region_set = set(n.lower() for n in region_names)
+    matches = alerts_df[alerts_df["matched_destinations"].fillna("").apply(
+        lambda s: any(name.strip().lower() in region_set for name in s.split(","))
+    )]
+
+    if len(matches) == 0:
+        return {"activeAlerts": 0}
+
+    return {
+        "activeAlerts": int(len(matches)),
+        "recentTitles": matches["title"].head(3).tolist(),
+    }
+
+
+def build_itinerary_days(intraday: pd.DataFrame, nearby_df: pd.DataFrame,
+                           start_day_number: int = 1) -> list:
+    """
+    Roll the per-time-slot intraday plan up into one payload object per
+    calendar date, shaped exactly per §5's request body: dayNumber, date,
+    slotType, heatTier, weatherContext, hazardContext, activities[].
+
+    Day-level slotType: if every slot that day maps to the same contract
+    value, use that value; otherwise "mixed" (a real value in §3's
+    vocabulary, not a fallback hack -- it's specifically for days that
+    genuinely combine outdoor and indoor/rest time).
+
+    Day-level heatTier: the single most severe tier reached that day
+    (extreme > hot > mild) -- a day is only as heat-safe as its worst hour,
+    so summarizing by "average" would understate real risk.
+    """
+    region_names = nearby_df["name"].tolist()
+    hazard_context = load_hazard_context(region_names)
+
+    heat_severity_order = ["mild", "hot", "extreme"]
+    days_payload = []
+
+    for day_number, (date, day_df) in enumerate(intraday.groupby("date"), start=start_day_number):
+        mapped_slot_types = day_df["slot_type"].map(map_slot_type)
+        mapped_heat_tiers = day_df["heat_tier"].map(map_heat_tier)
+
+        unique_slot_types = mapped_slot_types.dropna().unique().tolist()
+        day_slot_type = unique_slot_types[0] if len(unique_slot_types) == 1 else "mixed"
+
+        present_tiers = [t for t in heat_severity_order if t in mapped_heat_tiers.values]
+        day_heat_tier = present_tiers[-1] if present_tiers else None
+
+        activities = [
+            {
+                "time": row["time"],
+                "title": row["suggestion"],
+                "slotType": map_slot_type(row["slot_type"]),
+            }
+            for _, row in day_df.iterrows()
+        ]
+
+        day_payload = {
+            "dayNumber": day_number,
+            "date": date,
+            "slotType": day_slot_type,
+            "heatTier": day_heat_tier,
+            "weatherContext": {
+                # Cast off numpy's float64 explicitly -- it looks and prints
+                # like a plain float, but json.dumps() (which requests uses
+                # internally for `json=payload`) raises TypeError on it,
+                # so this isn't optional even though the dry-run print above
+                # shows it "working" fine.
+                "avgTempC": round(float(day_df["temp_c"].mean()), 1),
+                "condition": day_df["condition"].mode().iloc[0],
+            },
+            "hazardContext": hazard_context,
+            "activities": activities,
+        }
+
+        # §4: only needed when overriding the backend's default. The
+        # backend already sets needsMarketplaceData: true automatically on
+        # any indoor_rest day, so we only send it explicitly when a day
+        # NEEDS real options but isn't purely indoor_rest (e.g. "mixed"
+        # with an indoor block) -- otherwise the default silently misses it.
+        if day_slot_type == "mixed" and any(
+            row["needs_marketplace_data"] for _, row in day_df.iterrows()
+        ):
+            day_payload["needsMarketplaceData"] = True
+
+        if day_df["needs_marketplace_data"].any():
+            fallback_row = day_df[day_df["needs_marketplace_data"]].iloc[0]
+            day_payload["fallbackMessage"] = fallback_row["suggestion"]
+
+        days_payload.append(day_payload)
+
+    return days_payload
+
+
+def post_itinerary(days_payload: list, trip_id: str, base_url: str, ingest_key: str) -> dict:
+    """
+    PUT the built itinerary to the backend per §5. Uses the ML service key
+    (X-Ingest-Key), which per §5's auth table "may write any trip" --
+    same convention hazard_news_scraper.py already uses for /api/hazards.
+
+    Note §5's replace semantics: any day previously stored and not present
+    in this payload is deleted -- this call always sends the FULL itinerary
+    for the trip, never a partial update.
+    """
+    url = f"{base_url}/api/trips/{trip_id}/itinerary"
+    headers = {"X-Ingest-Key": ingest_key}
+    payload = {"modelVersion": MODEL_VERSION, "days": days_payload}
+
+    resp = requests.put(url, json=payload, headers=headers, timeout=15)
+
+    if resp.status_code == 200:
+        data = resp.json()
+        # §5: "ignoredFields ... check it in CI" -- unrecognized day-level
+        # keys don't fail the request, they just get silently dropped, so
+        # a naming typo here would otherwise go unnoticed indefinitely.
+        ignored = data.get("ignoredFields")
+        if ignored:
+            print(f"  [warning] backend ignored unrecognized fields: {ignored}")
+        print(f"  [ok] wrote {len(days_payload)} day(s) to trip {trip_id} "
+              f"(writtenBy={data.get('writtenBy')})")
+        return data
+    elif resp.status_code == 400:
+        print(f"  [400] itinerary rejected: {resp.json()}")
+    elif resp.status_code == 401:
+        print("  [401] Unauthorized -- check ML_SERVICE_KEY matches the backend's X-Ingest-Key")
+    elif resp.status_code == 404:
+        print(f"  [404] trip {trip_id} not found (or token doesn't own it)")
+    else:
+        print(f"  [{resp.status_code}] {resp.text[:200]}")
+    return {}
+
+
 def build_mixed_week_mock() -> list:
     """A 2-day mock spanning clear/hot, rain, and cool evening -- enough
     variety to see build_day_plan's rollup summaries differ day to day."""
@@ -340,8 +532,32 @@ def main(city: str = "Hunza"):
     print("--- Daily summary (calendar view) ---")
     print(build_day_plan(entries, nearby_df).to_string(index=False))
 
+    intraday = build_intraday_plan(entries, nearby_df)
     print("\n--- Intraday detail (heat + weather aware) ---")
-    print(build_intraday_plan(entries, nearby_df).to_string(index=False))
+    print(intraday.to_string(index=False))
+
+    # Push to backend per API_CONTRACT.md §5. Runs live only if
+    # API_BASE_URL, ML_SERVICE_KEY, and TRIP_ID are all set; otherwise
+    # prints exactly what WOULD be sent, mirroring the dry-run convention
+    # hazard_news_scraper.py already uses for /api/hazards -- so the
+    # payload shape can be reviewed/shared with Backend before anything
+    # actually writes to a trip.
+    days_payload = build_itinerary_days(intraday, nearby_df)
+
+    api_base_url = os.getenv("API_BASE_URL")
+    ingest_key = os.getenv("ML_SERVICE_KEY")
+    trip_id = os.getenv("TRIP_ID")
+
+    print(f"\n--- Backend itinerary push ({len(days_payload)} day(s)) ---")
+    if api_base_url and ingest_key and trip_id:
+        post_itinerary(days_payload, trip_id, api_base_url, ingest_key)
+    else:
+        missing = [name for name, val in
+                   [("API_BASE_URL", api_base_url), ("ML_SERVICE_KEY", ingest_key), ("TRIP_ID", trip_id)]
+                   if not val]
+        print(f"DRY RUN ({', '.join(missing)} not set) -- payload that would be sent:")
+        for day in days_payload:
+            print(f"  {day}")
 
 
 if __name__ == "__main__":
