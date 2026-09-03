@@ -72,14 +72,16 @@ export const api = {
     const url = region ? `${BASE_URL}/api/guides?region=${encodeURIComponent(region)}` : `${BASE_URL}/api/guides`;
     const res = await fetch(url, { headers: getHeaders() });
     if (!res.ok) throw new Error(`Failed to fetch guides: ${res.statusText}`);
-    return res.json();
+    const data = await res.json();
+    return data.guides;
   },
 
   async getHazards(region?: string): Promise<HazardAlert[]> {
     const url = region ? `${BASE_URL}/api/hazards?region=${encodeURIComponent(region)}` : `${BASE_URL}/api/hazards`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`Failed to fetch hazards: ${res.statusText}`);
-    return res.json();
+    const data = await res.json();
+    return data.alerts;
   },
 
   // --- Exclusion / Recommendation Refinement ---
