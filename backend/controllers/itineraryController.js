@@ -1,11 +1,12 @@
-const { Op } = require('sequelize');
-const { Trip, Itinerary, Guide, User, sequelize } = require('../models');
-const { publicGuide } = require('./guideController');
+const { Trip, Itinerary, sequelize } = require('../models');
+const { enrichItinerary } = require('../services/itineraryEnricher');
+const itinerarySource = require('../services/itinerarySource');
+const { getUserExcludeList } = require('../services/getUserExcludeList');
 const {
   HEAT_TIERS,
   SLOT_TYPES,
-  INDOOR_REST_SLOT,
   normalizeDay,
+  resolveNeedsMarketplaceData,
 } = require('../utils/itineraryContract');
 const {
   isNonEmptyString,
@@ -17,7 +18,6 @@ const {
 } = require('../utils/validate');
 
 const WRITE_SOURCES = ['ml', 'manual'];
-const MARKETPLACE_GUIDE_LIMIT = 10;
 const MAX_ACTIVITIES_PER_DAY = 50;
 const MAX_FALLBACK_MESSAGE_LENGTH = 500;
 const KNOWN_DAY_KEYS = [
@@ -86,31 +86,6 @@ async function findVisibleTrip(req, tripId) {
     return Trip.findByPk(tripId);
   }
   return Trip.findOne({ where: { id: tripId, userId: req.user.id } });
-}
-
-async function attachMarketplace(days, trip) {
-  if (!days.some((day) => day.needsMarketplaceData)) {
-    return days;
-  }
-
-  const guides = await Guide.findAll({
-    where: {
-      isAvailable: true,
-      region: { [Op.iLike]: `%${trip.destination}%` },
-    },
-    include: [{ model: User, as: 'user', attributes: ['id', 'name', 'role'] }],
-    order: [['rating', 'DESC'], ['createdAt', 'ASC']],
-    limit: MARKETPLACE_GUIDE_LIMIT,
-  });
-
-  const marketplace = {
-    region: trip.destination,
-    guides: guides.map((guide) => publicGuide(guide)),
-    lodging: [],
-    dining: [],
-  };
-
-  return days.map((day) => (day.needsMarketplaceData ? { ...day, marketplace } : day));
 }
 
 function validateActivities(day, label, details) {
@@ -199,9 +174,7 @@ function validateDay(day, index, trip, seenDayNumbers, details, ignored) {
 
 function buildRow(day, trip, source, modelVersion) {
   const slotType = day.slotType === undefined ? null : day.slotType;
-  const needsMarketplaceData = day.needsMarketplaceData === undefined
-    ? slotType === INDOOR_REST_SLOT
-    : day.needsMarketplaceData;
+  const needsMarketplaceData = resolveNeedsMarketplaceData(slotType, day.needsMarketplaceData);
 
   return {
     tripId: trip.id,
@@ -276,7 +249,7 @@ async function putItinerary(req, res, next) {
       return Itinerary.bulkCreate(rows, { transaction, returning: true });
     });
 
-    const days = await attachMarketplace(
+    const days = await enrichItinerary(
       created.map(publicDay).sort((a, b) => a.dayNumber - b.dayNumber),
       trip,
     );
@@ -314,7 +287,7 @@ async function getItinerary(req, res, next) {
     });
 
     if (stored.length > 0) {
-      const days = await attachMarketplace(stored.map(publicDay), trip);
+      const days = await enrichItinerary(stored.map(publicDay), trip);
       return res.status(200).json({
         tripId: trip.id,
         destination: trip.destination,
@@ -329,6 +302,48 @@ async function getItinerary(req, res, next) {
     if (dates.length > MAX_TRIP_DAYS) {
       return res.status(422).json({
         error: `Trip spans ${dates.length} days, which exceeds the ${MAX_TRIP_DAYS}-day placeholder limit`,
+      });
+    }
+
+    if (itinerarySource.isEnabled()) {
+      const excludeList = await getUserExcludeList(trip.userId);
+      const fetched = await itinerarySource.fetchItinerary(trip, dates, { exclude: excludeList });
+      const normalized = fetched.days.map((day) => {
+        const camel = normalizeDay(day);
+        return publicDay({
+          id: null,
+          tripId: trip.id,
+          dayNumber: camel.dayNumber,
+          date: camel.date,
+          activities: Array.isArray(camel.activities) ? camel.activities : [],
+          weatherContext: camel.weatherContext ?? null,
+          hazardContext: camel.hazardContext ?? null,
+          slotType: camel.slotType ?? null,
+          heatTier: camel.heatTier ?? null,
+          needsMarketplaceData: resolveNeedsMarketplaceData(
+            camel.slotType ?? null,
+            camel.needsMarketplaceData
+          ),
+          fallbackMessage: camel.fallbackMessage ?? null,
+          source: 'ml-preview',
+          modelVersion: fetched.modelVersion,
+        });
+      });
+
+      const days = await enrichItinerary(normalized, trip);
+
+      return res.status(200).json({
+        tripId: trip.id,
+        destination: trip.destination,
+        source: 'ml-preview',
+        mocked: fetched.mocked === true,
+        generator: fetched.generator,
+        generatedAt: new Date().toISOString(),
+        excludeApplied: Array.isArray(fetched.excludeApplied) ? fetched.excludeApplied : excludeList,
+        recommendationPool: Array.isArray(fetched.recommendations) ? fetched.recommendations : [],
+        days: days.length,
+        modelVersion: fetched.modelVersion,
+        itinerary: days,
       });
     }
 
@@ -362,4 +377,4 @@ async function getItinerary(req, res, next) {
   }
 }
 
-module.exports = { getItinerary, putItinerary, publicDay, attachMarketplace };
+module.exports = { getItinerary, putItinerary, publicDay };

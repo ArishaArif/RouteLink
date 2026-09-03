@@ -10,6 +10,74 @@ const {
 
 const HAZARD_TYPES = ['weather', 'health', 'safety', 'political', 'natural_disaster', 'other'];
 const SEVERITIES = ['low', 'medium', 'high', 'critical'];
+
+const HAZARD_TYPE_ALIASES = {
+  flood: 'natural_disaster',
+  flooding: 'natural_disaster',
+  flash_flood: 'natural_disaster',
+  glof: 'natural_disaster',
+  landslide: 'natural_disaster',
+  landslip: 'natural_disaster',
+  rockfall: 'natural_disaster',
+  mudslide: 'natural_disaster',
+  avalanche: 'natural_disaster',
+  earthquake: 'natural_disaster',
+  glacier_burst: 'natural_disaster',
+
+  storm: 'weather',
+  thunderstorm: 'weather',
+  heavy_rain: 'weather',
+  rain: 'weather',
+  snowfall: 'weather',
+  blizzard: 'weather',
+  heatwave: 'weather',
+  fog: 'weather',
+  wind: 'weather',
+
+  roadblock: 'safety',
+  road_closure: 'safety',
+  road_blocked: 'safety',
+  accident: 'safety',
+  crime: 'safety',
+  theft: 'safety',
+  military_activity: 'safety',
+
+  protest: 'political',
+  strike: 'political',
+  curfew: 'political',
+  border_closure: 'political',
+  unrest: 'political',
+
+  outbreak: 'health',
+  epidemic: 'health',
+  disease: 'health',
+  contamination: 'health',
+  water_contamination: 'health',
+};
+
+function aliasKey(value) {
+  return String(value).trim().toLowerCase().replace(/[\s-]+/g, '_');
+}
+
+function resolveHazardType(value) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    return { ok: false, mappedFrom: null };
+  }
+
+  const key = aliasKey(value);
+
+  if (HAZARD_TYPES.includes(key)) {
+    return { ok: true, hazardType: key, mappedFrom: null };
+  }
+
+  const mapped = HAZARD_TYPE_ALIASES[key];
+  if (mapped) {
+    return { ok: true, hazardType: mapped, mappedFrom: key };
+  }
+
+  return { ok: false, mappedFrom: null };
+}
+
 const ALLOWED_KEYS = [
   'sourceType',
   'source',
@@ -86,8 +154,12 @@ async function ingestHazard(req, res, next) {
     } else if (body.rawText.length > MAX_RAW_TEXT_LENGTH) {
       details.push(`rawText must be at most ${MAX_RAW_TEXT_LENGTH} characters`);
     }
-    if (!HAZARD_TYPES.includes(body.hazardType)) {
-      details.push(`hazardType is required and must be one of: ${HAZARD_TYPES.join(', ')}`);
+    const resolvedType = resolveHazardType(body.hazardType);
+    if (!resolvedType.ok) {
+      details.push(
+        `hazardType is required and must be one of: ${HAZARD_TYPES.join(', ')}`
+          + ` (or a known alias: ${Object.keys(HAZARD_TYPE_ALIASES).join(', ')})`
+      );
     }
     if (!isNonEmptyString(body.region)) {
       details.push('region is required and must be a non-empty string');
@@ -133,16 +205,20 @@ async function ingestHazard(req, res, next) {
       return res.status(400).json({ error: 'Validation failed', details });
     }
 
-    dedupeHash = dedupeHashFor(body.region, body.hazardType, body.rawText);
+    dedupeHash = dedupeHashFor(body.region, resolvedType.hazardType, body.rawText);
+
+    const mapping = resolvedType.mappedFrom
+      ? { hazardTypeMappedFrom: resolvedType.mappedFrom }
+      : {};
 
     const existing = await HazardAlert.findOne({ where: { dedupeHash } });
     if (existing) {
-      return res.status(200).json({ alert: publicHazard(existing), duplicate: true });
+      return res.status(200).json({ alert: publicHazard(existing), duplicate: true, ...mapping });
     }
 
     const alert = await HazardAlert.create({
       region: body.region.trim(),
-      category: body.hazardType,
+      category: resolvedType.hazardType,
       severity: body.severity,
       title: deriveTitle(body.rawText),
       description: isNonEmptyString(body.description) ? body.description.trim() : null,
@@ -156,7 +232,7 @@ async function ingestHazard(req, res, next) {
       dedupeHash,
     });
 
-    return res.status(201).json({ alert: publicHazard(alert), duplicate: false });
+    return res.status(201).json({ alert: publicHazard(alert), duplicate: false, ...mapping });
   } catch (err) {
     if (err.name === 'SequelizeUniqueConstraintError' && dedupeHash) {
       const raced = await HazardAlert.findOne({ where: { dedupeHash } });
@@ -208,4 +284,11 @@ async function listHazards(req, res, next) {
   }
 }
 
-module.exports = { ingestHazard, listHazards, publicHazard };
+module.exports = {
+  ingestHazard,
+  listHazards,
+  publicHazard,
+  HAZARD_TYPES,
+  HAZARD_TYPE_ALIASES,
+  resolveHazardType,
+};

@@ -63,6 +63,13 @@ function normalizeDay(raw) {
   return normalized;
 }
 
+function resolveNeedsMarketplaceData(slotType, provided) {
+  if (provided === undefined || provided === null) {
+    return slotType === INDOOR_REST_SLOT;
+  }
+  return provided === true;
+}
+
 module.exports = {
   HEAT_TIERS,
   SLOT_TYPES,
@@ -70,4 +77,5 @@ module.exports = {
   INDOOR_REST_SLOT,
   normalizeDay,
   normalizeActivity,
+  resolveNeedsMarketplaceData,
 };

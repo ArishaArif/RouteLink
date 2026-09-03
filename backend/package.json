@@ -10,16 +10,21 @@
     "db:sync": "node scripts/db-sync.js",
     "db:migrate:day3": "node scripts/db-migrate-day3.js",
     "db:migrate:day4": "node scripts/db-migrate-day4.js",
+    "db:migrate:day5": "node scripts/db-migrate-day5.js",
     "test": "node -e \"require('./server.js'); console.log('backend loaded OK - all routers and models resolve')\"",
     "smoke": "node scripts/smoke-test.js",
     "smoke:day3": "node scripts/smoke-day3.js",
-    "smoke:day4": "node scripts/smoke-day4.js"
+    "smoke:day4": "node scripts/smoke-day4.js",
+    "smoke:day5": "node scripts/smoke-day5.js",
+    "smoke:integration": "node scripts/smoke-integration.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
     "express": "^4.19.2",
+    "express-rate-limit": "^8.7.0",
+    "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.12.0",
     "pg-hstore": "^2.3.4",

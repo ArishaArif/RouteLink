@@ -6,6 +6,59 @@
 - `npm run smoke` — 43 checks
 - `npm run smoke:day3` — guides, bookings, chat, hazard ingest
 - `npm run smoke:day4` — itinerary contract, marketplace hand-off, write auth
+- `npm run smoke:integration` — security headers, hazard aliases, guide-side bookings, SOS, rate limits
+
+**214 checks, 0 failures** as of 2026-09-02, against live Postgres.
+
+> Note: this file previously carried the Day 2/3 and Day 4 "Fixed" sections, an API
+> contract mismatch log, a Routes section and an open-questions list. Those were lost
+> from the working tree and were never committed, so git cannot restore them. Ask
+> Backend before assuming a past finding was resolved.
+
+## Feature freeze / integration session (2026-09-02)
+
+### Already done before this session — brief was stale
+
+- **Ingest-key auth on `POST /api/hazards` was already built** (`middleware/ingestAuth.js`,
+  timing-safe compare on `X-Ingest-Key`). `GET /api/hazards` is public, as intended.
+- **`GET /api/bookings` already returned guide-side bookings** via `Op.or` on the caller's
+  own listing, with a `viewerRole` per row. `PATCH /api/bookings/:id/status` was therefore
+  already reachable for guides — now proven by test, including the traveler `403`.
+
+### Fixed this session
+
+- **Marketplace results were ordered by `Guide.rating`.** Every rating is `0.0` (no review
+  system), so the sort was meaningless but read as quality ranking. Now ordered by
+  `pricePerDay` then `createdAt`, with the reason recorded at the query.
+- **Enrichment had no mock/real seam.** `attachMarketplace` lived inline in
+  `controllers/itineraryController.js`. Extracted to `services/itineraryEnricher.js` and the
+  AI/ML fetch isolated in `services/itinerarySource.js` — see `API_CONTRACT.md` §17.
+
+### Added this session
+
+- `helmet()` globally; rate limiting on `POST /api/auth/login` and `POST /api/hazards`
+  (`middleware/rateLimit.js`). Limiter runs **before** the ingest-key check so the endpoint
+  cannot be used to probe keys for free. Defaults are generous enough to run all suites
+  repeatedly — tighten for production. §16.
+- Hazard type alias mapping — 37 AI/ML labels (`flood`, `landslide`, `roadblock`, `glof`, …)
+  map onto the six canonical enum values, case- and separator-insensitive. Unknown labels
+  still `400`, and the error lists every alias. Response carries `hazardTypeMappedFrom`. §15.
+- `POST /api/sos` and `GET /api/sos/nearest`, both against a mocked provider. §14.
+
+### Open questions for the team
+
+- **An SOS is not recorded anywhere.** `POST /api/sos` returns `persisted: false` — there is
+  no `SosEvent` model and no audit trail, so if a traveler triggers an SOS and closes the
+  app, no trace exists. Fine for the demo; needs a decision before it is more than that.
+- **SOS requires a valid JWT.** That means it fails exactly when a token has expired, which
+  is a bad property for an emergency endpoint. Left consistent with every other route
+  pending a call from the team.
+- `PATCH /api/bookings/:id/status` still has **no transition guard** — `cancelled` →
+  `confirmed` is accepted. Business rule, not a bug; decide the legal transitions before
+  enforcing them in code.
+- The AI/ML mock is **off by default** (`ITINERARY_ML_MOCK=false`). Turning it on changes
+  what `GET /api/trips/:id/itinerary` returns for an unstored trip, which QA's Day 4 suite
+  asserts on. Flip it for the demo, not for the frozen contract.
 
 ## Expo Go / SDK 57 compatibility issue
 
