@@ -121,6 +121,39 @@ def predict_new_examples(model, vectorizer):
         print(f"[{label}] {text}")
 
 
+def predict_hazard(texts: list, threshold: float = 0.35) -> list:
+    """
+    Load the persisted model + vectorizer (trained via main() below) and
+    classify a batch of raw text strings as hazard / not-hazard.
+
+    This is the callable entry point app.py's FastAPI service imports.
+    It didn't exist before -- `from scripts.hazard_classifier import
+    predict_hazard` was importing a name this file never defined, which
+    means the whole service failed to start (ImportError), not just this
+    one endpoint.
+
+    threshold defaults to 0.35, matching the same recall-favoring cutoff
+    hazard_news_scraper.py already uses in classify_articles() -- for a
+    safety app a missed hazard is worse than an extra false alert, and
+    both callers should share that judgment call rather than silently
+    drifting apart on it.
+    """
+    model = joblib.load(MODEL_PATH)
+    vectorizer = joblib.load(VECTORIZER_PATH)
+
+    X = vectorizer.transform(texts)
+    confidences = model.predict_proba(X)[:, 1]
+
+    return [
+        {
+            "text": text,
+            "hazard_confidence": round(float(conf), 3),
+            "is_hazard": bool(conf >= threshold),
+        }
+        for text, conf in zip(texts, confidences)
+    ]
+
+
 def main():
     df = load_data(DATA_PATH)
     pk_df = load_pakistan_examples(PAKISTAN_EXAMPLES_PATH)
