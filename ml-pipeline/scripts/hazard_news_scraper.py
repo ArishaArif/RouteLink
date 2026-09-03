@@ -92,6 +92,7 @@ def fetch_rss_articles() -> pd.DataFrame:
         print(f"[{source_name} RSS] fetched {len(feed.entries)} entries")
 
     df = pd.DataFrame(rows, columns=["title", "description", "source", "published_at", "url"])
+    df["source_type"] = "rss"
     return df
 
 
@@ -177,6 +178,7 @@ def fetch_news(api_key: str) -> pd.DataFrame:
     # df["title"] crashes with a confusing KeyError instead of a clear
     # "0 articles found" message.
     df = pd.DataFrame(all_articles, columns=["title", "description", "source", "published_at", "url"])
+    df["source_type"] = "news"
     df = df.drop_duplicates(subset="url").reset_index(drop=True)
     print(f"Fetched {len(df)} unique articles across {len(SEARCH_QUERIES)} queries")
     return df
@@ -214,6 +216,7 @@ def fetch_news_mock() -> pd.DataFrame:
          "source": "The Times of India", "published_at": "2026-08-27T09:00:00Z", "url": "https://example.com/7"},
     ]
     df = pd.DataFrame(mock_articles)
+    df["source_type"] = "news"
     print(f"Using {len(df)} MOCK articles (no NEWS_API_KEY / offline demo)")
     return df
 
@@ -284,6 +287,109 @@ def extract_locations(df: pd.DataFrame, destinations_df: pd.DataFrame) -> pd.Dat
     return df
 
 
+# --- Backend integration (per API_CONTRACT.md §7 and §15) ---
+# POST /api/hazards accepts EXACTLY these fields; unknown fields are a
+# hard 400. hazardType must be one of the 6 canonical values, OR one of
+# the aliases in §15 (matching is case-insensitive, spaces/hyphens
+# treated as underscores -- so we don't have to hand-massage casing).
+HAZARD_TYPE_PRIORITY = [
+    # Checked in order -- more specific/severe hazard words win over
+    # generic ones (e.g. an article with both "landslide" and "closed"
+    # is reported as "landslide", not the vaguer "road_closure").
+    ("landslide", "landslide"), ("avalanche", "avalanche"), ("flood", "flood"),
+    ("glacier", "glacier_burst"), ("snowfall", "snowfall"),
+    ("road closed", "road_closure"), ("road blocked", "roadblock"),
+    ("stranded", "flash_flood"), ("rescue", "flash_flood"),
+    ("blocked", "roadblock"), ("closure", "road_closure"),
+]
+
+
+def infer_hazard_type(text: str) -> str:
+    """Pick the most specific alias term present, per HAZARD_TYPE_PRIORITY order."""
+    text = text.lower()
+    for keyword, alias in HAZARD_TYPE_PRIORITY:
+        if keyword in text:
+            return alias
+    return "other"
+
+
+def infer_severity(confidence: float) -> str:
+    """
+    Map model confidence to the contract's severity scale. Deliberately
+    never auto-assigns "critical" -- that's a strong claim about
+    real-world danger a text classifier's confidence score alone
+    shouldn't make. "critical" should be a human/authority call, not an
+    automated one from article-text confidence.
+    """
+    if confidence >= 0.75:
+        return "high"
+    elif confidence >= 0.5:
+        return "medium"
+    return "low"
+
+
+def build_hazard_payload(row: pd.Series, destinations_df: pd.DataFrame, source_type: str) -> dict:
+    """
+    Build exactly the fields POST /api/hazards accepts -- no more, no
+    less. Sending an extra field (e.g. our own `hazard_confidence` column
+    name) would trigger a 400, per the contract's strict-rejection rule.
+    """
+    combined_text = f"{row['title']} {row['description']}"
+
+    region = None
+    latitude, longitude = None, None
+    if row.get("matched_destinations"):
+        first_match = row["matched_destinations"].split(",")[0].strip()
+        region = first_match
+        match_row = destinations_df[destinations_df["name"] == first_match]
+        if len(match_row) > 0:
+            # latitude/longitude "must be sent together or not at all" --
+            # only include both if we actually have both.
+            latitude = float(match_row.iloc[0]["latitude"])
+            longitude = float(match_row.iloc[0]["longitude"])
+
+    payload = {
+        "sourceType": source_type,
+        "rawText": row["title"][:500],
+        "hazardType": infer_hazard_type(combined_text),
+        "region": region,
+        "severity": infer_severity(row["hazard_confidence"]),
+        "description": row["description"][:500] if row["description"] else None,
+    }
+    if latitude is not None and longitude is not None:
+        payload["latitude"] = latitude
+        payload["longitude"] = longitude
+
+    return payload
+
+
+def post_hazard_alert(payload: dict, base_url: str, ingest_key: str) -> dict:
+    """POST one alert to the backend. Returns the response body for logging/inspection."""
+    url = f"{base_url}/api/hazards"
+    headers = {"X-Ingest-Key": ingest_key}
+    resp = requests.post(url, json=payload, headers=headers, timeout=10)
+
+    if resp.status_code == 200:
+        data = resp.json()
+        if data.get("duplicate"):
+            print(f"  [duplicate] {payload['rawText'][:60]!r} -- already recorded, not re-created")
+        else:
+            mapped_from = data.get("hazardTypeMappedFrom")
+            note = f" (mapped from {mapped_from!r})" if mapped_from else ""
+            print(f"  [ok] {payload['rawText'][:60]!r} -> {payload['hazardType']}{note}")
+        return data
+    elif resp.status_code == 400:
+        print(f"  [400] {payload['rawText'][:60]!r} rejected: {resp.json()}")
+    elif resp.status_code == 401:
+        print("  [401] Unauthorized -- check ML_SERVICE_KEY matches the backend's X-Ingest-Key")
+    elif resp.status_code == 429:
+        data = resp.json()
+        print(f"  [429] Rate limited -- retry after {data.get('retryAfterSeconds')}s")
+    else:
+        print(f"  [{resp.status_code}] {payload['rawText'][:60]!r}: {resp.text[:150]}")
+    return {}
+
+
 def main():
     api_key = os.getenv("NEWS_API_KEY")
     destinations_df = pd.read_csv(DESTINATIONS_PATH)
@@ -338,6 +444,24 @@ def main():
 
     hazard_alerts[display_cols + ["published_at", "url"]].to_csv(OUTPUT_PATH, index=False)
     print(f"\nSaved {len(hazard_alerts)} hazard alerts to {OUTPUT_PATH}")
+
+    # Push to backend per API_CONTRACT.md §7. Runs live only if both
+    # API_BASE_URL and ML_SERVICE_KEY are set; otherwise prints exactly
+    # what WOULD be sent, so the payload shape can be reviewed/shared
+    # with Backend before anything actually posts.
+    api_base_url = os.getenv("API_BASE_URL")
+    ingest_key = os.getenv("ML_SERVICE_KEY")
+
+    print(f"\n--- Backend hazard ingest ({len(hazard_alerts)} alerts) ---")
+    if api_base_url and ingest_key:
+        for _, row in hazard_alerts.iterrows():
+            payload = build_hazard_payload(row, destinations_df, row["source_type"])
+            post_hazard_alert(payload, api_base_url, ingest_key)
+    else:
+        print("ML_SERVICE_KEY not set -- DRY RUN, showing payloads without posting:")
+        for _, row in hazard_alerts.iterrows():
+            payload = build_hazard_payload(row, destinations_df, row["source_type"])
+            print(f"  {payload}")
 
 
 if __name__ == "__main__":
