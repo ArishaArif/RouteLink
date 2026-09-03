@@ -12,6 +12,10 @@ complete endpoint list), §12 (booking / chat / guide bodies). Those three cover
 the mistakes that have actually been made against this API. §13 explains why the
 shared Postman collection is not a substitute for this file.
 
+**If you are integrating against something that is still stubbed, read §17
+first** — it lists exactly what is mocked, how a response tells you so, and the
+single function that gets swapped when each real service lands.
+
 ---
 
 ## 1. Naming: send either case, receive camelCase
@@ -116,15 +120,18 @@ appears in an itinerary, it did not come from this contract.
 ```json
 "marketplace": {
   "region": "Hunza Valley",
-  "guides": [ { "id": "...", "name": "...", "region": "...", "pricePerDay": 7500, "rating": 4.8 } ],
+  "guides": [ { "id": "...", "name": "...", "region": "...", "pricePerDay": 7500, "rating": 0 } ],
   "lodging": [],
   "dining": []
 }
 ```
 
 - `guides` — real rows from the `guides` table, filtered to `isAvailable` and a
-  region matching the trip destination, best-rated first, capped at 10. Phone
-  numbers are never included here.
+  region matching the trip destination, **cheapest first** (`pricePerDay`
+  ascending, then `createdAt`), capped at 10. Phone numbers are never included
+  here. This is deliberately **not** ordered by `rating`: there is no review
+  system yet, so every `rating` is `0.0`, and sorting on it would read as a
+  quality ranking while being arbitrary. **Do not label this list "top rated".**
 - `lodging` and `dining` — **always empty arrays today.** There is no hotel or
   restaurant table in this backend yet. They are present so the shape does not
   change when that inventory lands. An empty array means "the backend has none",
@@ -302,13 +309,9 @@ is no longer correct. `null` stays `null`.
 
 ## 9. Not built
 
-`GET /api/sos/nearest` is specified in `SOS_DECISION.md` and is still not
-implemented. It returns `404`. Nothing should be integrated against it yet.
-
-`POST /api/sos` appears in the shared Postman collection but has **never been
-specified anywhere** — not in `SOS_DECISION.md`, not here. It does not exist and
-no design for it has been agreed. If a panic-button write endpoint is wanted,
-that is a new conversation, not a missing implementation. See §13.
+Nothing in the specified surface is unbuilt as of 2026-09-02. `GET
+/api/sos/nearest` and `POST /api/sos` are now implemented — see §14 — but both
+run against a **mocked** provider, so read that section before integrating.
 
 ---
 
@@ -339,7 +342,7 @@ does with a created record.
 
 ## 11. Endpoint index
 
-Complete as of 2026-09-02. Auth column: **none** = public, **JWT** = header
+Complete as of 2026-09-03. Auth column: **none** = public, **JWT** = header
 `Authorization: Bearer <token>`, **key** = header `X-Ingest-Key`, **optional** =
 JWT read if present but never required (affects which fields come back).
 
@@ -364,8 +367,12 @@ JWT read if present but never required (affects which fields come back).
 | `PATCH` | `/api/bookings/:id/status` | JWT | guide or admin only — a traveler gets `403`. §12 |
 | `POST` | `/api/bookings/:id/messages` | JWT | participants only. §12 |
 | `GET` | `/api/bookings/:id/messages` | JWT | participants only; paginated |
-| `POST` | `/api/hazards` | key | §7. Strict — rejects unknown fields |
+| `POST` | `/api/hazards` | key | §7. Strict — rejects unknown fields. Rate limited. Accepts AI/ML labels via §15 aliases |
 | `GET` | `/api/hazards` | none | optional `?region=`; active alerts, severity-ranked |
+| `POST` | `/api/sos` | JWT | §14. Panic trigger + nearest-service lookup. **Mocked provider** |
+| `GET` | `/api/sos/nearest` | JWT | §14. `?lat=&lng=&radiusMeters=`. **Mocked provider** |
+| `POST` | `/api/users/me/destination-state` | JWT | §18. `destinationName`, `status`. Upsert — one row per (user, destination) |
+| `GET` | `/api/users/me/destination-state` | JWT | §18. Raw list for debugging; also returns the combined `excludeList` |
 
 Non-participants on a booking get `404`, not `403` — the API does not confirm
 that a booking exists to someone who has no part in it.
@@ -443,6 +450,11 @@ the backend and never reconciled against it. Replayed against the running server
 on 2026-09-02 — with `base_url` and a valid token supplied, so setup was not the
 cause — **6 of its 16 requests passed and 10 failed.**
 
+That replay predates the SOS endpoints landing later the same day. The count is
+unchanged (both SOS requests still fail), but the reason moved from `404` to
+`401`: this collection attaches its bearer token **per request**, and the two SOS
+requests have no auth block, so supplying `token` does not reach them.
+
 The failures are not backend bugs. Each one is the collection asserting a shape
 this API has never had:
 
@@ -454,8 +466,8 @@ this API has never had:
 | `POST /api/bookings` | `400` | `guide_id`, `trip_id`, single `date` — should be `tripId`, `guideId`, `startDate`, `endDate` |
 | `PATCH /api/trips/1` | `400` | sends `duration_days`, which does not exist |
 | `POST /api/hazards` | `401` | no `X-Ingest-Key`; body also uses nested `location` and `type: "landslide"` instead of flat `latitude`/`longitude` and a `hazardType` from the enum |
-| `POST /api/sos` | `404` | endpoint was never specified — §9 |
-| `GET /api/sos/nearest` | `404` | specified, not yet built — §9 |
+| `POST /api/sos` | `401` | **built since — see §14**, so no longer a `404`. This request carries no auth block and SOS requires a JWT. Its body is wrong too: flat camelCase `userId`/`latitude`/`longitude`, not `user_id` + nested `location` |
+| `GET /api/sos/nearest` | `401` | **built since — see §14**, so no longer a `404`. Same missing auth block — the `?lat=&lng=` it sends is otherwise correct, so a bearer token is all this one needs to pass |
 
 Also wrong but not fatal: `base_url` and `token` ship as empty strings, so as
 handed over *every* request fails on an unresolved variable; `Login` is set to
@@ -470,4 +482,242 @@ Seven built endpoints have **no request at all**: `PUT /api/trips/:id/itinerary`
 **Until the collection is regenerated against §11, treat this file as the only
 source of truth.** A red request in that collection is not evidence of a backend
 defect — check the shape here first.
+
+---
+
+## 14. SOS — `POST /api/sos` and `GET /api/sos/nearest`
+
+Both are live. **The nearest-service provider behind them is mocked**, and every
+response says so — do not ship a demo that presents these results as real
+locations without reading the flags.
+
+### `POST /api/sos`
+
+Auth: JWT. Body is flat camelCase, matching project convention:
+
+```json
+{ "latitude": 36.3167, "longitude": 74.65, "radiusMeters": 20000, "note": "optional" }
+```
+
+`userId` is **taken from your token.** You may send it, but a value that does not
+match the authenticated user returns `403` — a client must not be able to raise
+an SOS as somebody else. `radiusMeters` and `note` are optional. Unknown fields
+are rejected with `400`, so the earlier snake_case draft (`user_id` plus a nested
+`location: { lat, lng }`) does **not** work.
+
+Response `200`:
+
+```json
+{
+  "sos": {
+    "userId": "<uuid>", "latitude": 36.3167, "longitude": 74.65,
+    "note": null, "triggeredAt": "2026-09-02T12:52:25.930Z",
+    "persisted": false
+  },
+  "nearest": {
+    "provider": "mock", "mocked": true, "radiusMeters": 20000,
+    "services": [
+      { "name": "Hunza Pharmacy & Clinic", "category": "pharmacy",
+        "latitude": 36.3151, "longitude": 74.6488,
+        "phone": "+92 300 1234567", "distanceKm": 0.208 }
+    ],
+    "emergencyNumbers": [{ "label": "Rescue 1122", "number": "1122" }]
+  }
+}
+```
+
+`services` is sorted nearest-first. `emergencyNumbers` is the static fallback
+from `SOS_DECISION.md` and is always present, so a client has something to show
+even when the lookup returns nothing.
+
+**`persisted: false` is not a placeholder — it is the truth.** Raising an SOS
+currently writes nothing to the database. There is no `SosEvent` model and no
+audit trail: if a traveler triggers an SOS and closes the app, no record of it
+exists anywhere. That is a deliberate scope decision for the demo, not an
+oversight, and it needs a decision before this is anything but a demo.
+
+This is also why the response is `200` and **not** `201` — nothing is created, so
+advertising `201` would tell a client the SOS had been recorded when it has not.
+If persistence is added later, `201` becomes correct and this line goes away.
+
+### `GET /api/sos/nearest`
+
+Auth: JWT. `?lat=&lng=` (aliases `latitude`/`longitude` also accepted), optional
+`radiusMeters`. This is the read-only shape `SOS_DECISION.md` specified. Returns
+`200` with `{ query, nearest }` — the same `nearest` object as above.
+
+---
+
+## 15. Hazard type aliases — AI/ML labels map to our enum
+
+`POST /api/hazards` still stores only the six canonical values (§7), but it now
+accepts the labels an NLP pipeline naturally produces and maps them. Matching is
+case-insensitive and treats spaces and hyphens as underscores, so `"Road
+Closure"`, `"road-closure"` and `"road_closure"` are the same input.
+
+| maps to | accepted aliases |
+| --- | --- |
+| `natural_disaster` | `flood`, `flooding`, `flash_flood`, `glof`, `landslide`, `landslip`, `rockfall`, `mudslide`, `avalanche`, `earthquake`, `glacier_burst` |
+| `weather` | `storm`, `thunderstorm`, `heavy_rain`, `rain`, `snowfall`, `blizzard`, `heatwave`, `fog`, `wind` |
+| `safety` | `roadblock`, `road_closure`, `road_blocked`, `accident`, `crime`, `theft`, `military_activity` |
+| `political` | `protest`, `strike`, `curfew`, `border_closure`, `unrest` |
+| `health` | `outbreak`, `epidemic`, `disease`, `contamination`, `water_contamination` |
+
+When an alias is used, the response adds `hazardTypeMappedFrom` so ML can see
+what happened:
+
+```json
+{ "alert": { "hazardType": "natural_disaster", "...": "..." },
+  "duplicate": false, "hazardTypeMappedFrom": "flood" }
+```
+
+A label that is neither canonical nor a known alias still returns `400`, and the
+error lists every accepted value **and** every alias. Dedupe keys off the
+canonical type, so `"flood"` and `"natural_disaster"` for the same region and
+`rawText` are correctly treated as the same alert.
+
+To extend the list: add a line to `HAZARD_TYPE_ALIASES` in
+`controllers/hazardController.js`. No migration needed — aliases are not enum
+values.
+
+---
+
+## 16. Security headers and rate limiting
+
+`helmet()` is applied globally, so every response carries
+`X-Content-Type-Options`, `X-Frame-Options`, `Strict-Transport-Security`,
+`Referrer-Policy` and the Cross-Origin-* set. No client change is needed; JSON
+fetches with CORS are unaffected.
+
+Two endpoints are rate limited per IP:
+
+| endpoint | env var | default |
+| --- | --- | --- |
+| `POST /api/auth/login` | `AUTH_RATE_LIMIT_MAX` | 30 per window |
+| `POST /api/hazards` | `HAZARD_RATE_LIMIT_MAX` | 60 per window |
+
+Window is `RATE_LIMIT_WINDOW_MS`, default 15 minutes. Exceeding a limit returns
+`429` with `{ error, retryAfterSeconds }` and a `Retry-After` header — **clients
+should back off rather than retry immediately.** On hazard ingest the limiter
+runs *before* the key check, so an unauthenticated caller cannot use the endpoint
+to probe keys for free.
+
+Defaults are deliberately generous enough to run the full smoke suites
+repeatedly. Tighten `AUTH_RATE_LIMIT_MAX` for production. `RATE_LIMIT_DISABLED=true`
+switches both off for local work.
+
+---
+
+## 17. Mock vs. real — the three swap points
+
+Three integrations are stubbed today. Each is isolated to one function so
+swapping in the real thing does not touch surrounding logic. Nothing else needs
+to change when a teammate's service lands.
+
+| integration | file | function to replace | how you know it is mocked |
+| --- | --- | --- | --- |
+| AI/ML itinerary generation | `services/itinerarySource.js` | `fetchItinerary(trip, dates, options)` — now carries `options.exclude` | response has `mocked: true`, `generator: "mock"`, `source: "ml-preview"` |
+| SOS nearest-service lookup | `services/sosLookup.js` | `findNearestServices({ latitude, longitude, radiusMeters })` | `nearest.mocked: true`, `nearest.provider: "mock"` |
+| Marketplace lodging/dining | `services/itineraryEnricher.js` | `buildMarketplace()` — `lodging` / `dining` | both arrays are always `[]` |
+
+`marketplace.guides` is **not** mocked — it is a real query against our own
+`Guide` table, filtered by region against the trip's destination. Only `lodging`
+and `dining` are empty placeholders.
+
+The AI/ML mock is **off by default**, because turning it on changes what
+`GET /api/trips/:id/itinerary` returns when no itinerary is stored. Set
+`ITINERARY_ML_MOCK=true` to enable it. With it off, the endpoint behaves exactly
+as §6 documents (`source: "placeholder"`). With it on, an unstored trip returns
+`source: "ml-preview"` with populated `slotType`/`heatTier` and marketplace
+enrichment on flagged days. Stored itineraries always win over both.
+
+When AI/ML's service is confirmed callable, replace the body of `fetchItinerary`
+with the real call and keep its return shape (`{ mocked, generator, modelVersion,
+days }`). `days` may stay snake_case — `normalizeDay()` handles it. Nothing in
+the enricher or the controller changes.
+
+The mock also echoes the exclude list it was handed: `excludeApplied` and
+`recommendationPool` on `ml-preview` responses. Those are mock-only fields;
+the real service decides what it returns.
+
+---
+
+## 18. Destination state — the exclude list
+
+AI/ML's recommender can now take an **exclude list** of destination names and
+return a larger pool instead of a fixed 3. Per user, the backend tracks which
+destinations they have seen (`visited`) or removed (`dismissed`), and feeds that
+list into the recommendation request.
+
+### The name is AI/ML's, not the trip's
+
+`destinationName` uses **AI/ML's destination identifier**, not free-text
+`Trip.destination`. Their identifiers come from the dataset `name` field
+(`_key` renamed in `load_destinations.py`), stripped but **casing preserved** —
+`"Hunza Valley"`, `"Fairy Meadows"`, `"Deosai National Park"`. The backend
+stores what it is sent, trimmed and whitespace-collapsed, and dedupes
+case-insensitively: `"hunza valley"` and `"Hunza Valley"` are the same
+destination, and the newest write **wins** (casing and status).
+
+### `POST /api/users/me/destination-state`
+
+Auth: JWT. Body is flat camelCase, exactly two accepted fields:
+
+```json
+{ "destinationName": "Fairy Meadows", "status": "dismissed" }
+```
+
+| field | required | rules |
+| --- | --- | --- |
+| `destinationName` | yes | non-empty string, ≤ 255 chars; trimmed, whitespace-collapsed, casing preserved |
+| `status` | yes | `"visited"` \| `"dismissed"` |
+
+Unknown fields return `400` (so `destination_name` snake_case does **not**
+work — §1's dual-case rule stops at the itinerary write). This is an **upsert**:
+`dismissing` a destination you already `visited` flips the single row's status,
+it never creates a second row. Unique per `(userId, lower(destinationName))`,
+backed by a functional unique index.
+
+Response is `201` when a row is created, `200` when an existing row is updated:
+
+```json
+{ "destinationState": { "id": "<uuid>", "destinationName": "Fairy Meadows",
+  "status": "dismissed", "createdAt": "...", "updatedAt": "..." },
+  "created": false }
+```
+
+### `GET /api/users/me/destination-state`
+
+Auth: JWT. Raw list for debugging and Mobile:
+
+```json
+{ "userId": "<uuid>", "count": 2,
+  "excludeList": ["Deosai National Park", "Fairy Meadows", "hunza valley"],
+  "destinationState": [
+    { "destinationName": "Deosai National Park", "status": "visited" },
+    { "destinationName": "Fairy Meadows", "status": "dismissed" }
+  ] }
+```
+
+`excludeList` is the combined list the recommender is handed on the next
+request — `visited` + `dismissed` merged, deduped, alphabetical (case-aware
+sort, so `"hunza valley"` sorts after `"Fairy Meadows"`). If AI/ML wants the
+two statuses separated instead of combined, that is a one-line change in
+`services/getUserExcludeList.js`, which already returns both arrays —
+confirm with AI/ML, then flip.
+
+### Wiring
+
+The exclude list is fetched inside `GET /api/trips/:id/itinerary` when the AI/ML
+source is enabled, and passed to `fetchItinerary` as `exclude`. The mock echoes
+it back (`excludeApplied`, `recommendationPool`); `services/itinerarySource.js`
+is the single swap point per §17, and the exclude parameter travels with it.
+
+### Open question
+
+The mock filters case-insensitively. Whether the real recommender's exclude
+filter matches case-insensitively has not been confirmed — its dataset names
+preserve casing, so a plain `isin()` filter would silently fail to exclude
+`"hunza valley"` when stored as `"Hunza Valley"`. **Ask AI/ML before relying on
+this at runtime.**
 

@@ -1,11 +1,23 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 const { sequelize } = require('./models');
 
 const app = express();
 
-app.use(cors());
+if (process.env.TRUST_PROXY) {
+  const hops = Number.parseInt(process.env.TRUST_PROXY, 10);
+  app.set('trust proxy', Number.isFinite(hops) ? hops : process.env.TRUST_PROXY);
+}
+
+const allowedOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+app.use(helmet());
+app.use(cors(allowedOrigins.length > 0 ? { origin: allowedOrigins, credentials: true } : undefined));
 app.use(express.json());
 
 app.get('/health', async (req, res) => {
@@ -18,10 +30,12 @@ app.get('/health', async (req, res) => {
 });
 
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/users', require('./routes/users'));
 app.use('/api/trips', require('./routes/trips'));
 app.use('/api/guides', require('./routes/guides'));
 app.use('/api/bookings', require('./routes/bookings'));
 app.use('/api/hazards', require('./routes/hazards'));
+app.use('/api/sos', require('./routes/sos'));
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found', method: req.method, path: req.originalUrl });
