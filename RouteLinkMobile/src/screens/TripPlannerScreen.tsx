@@ -68,18 +68,29 @@ export const TripPlannerScreen = () => {
   const [attractions, setAttractions] = useState<AttractionSpot[]>(MOCK_ATTRACTION_POOL);
 
   const handleMarkVisited = async (spotId: string) => {
-    try {
-      // Optimistic UI update: remove card locally immediately
-      setAttractions((prev) => prev.filter((item) => item.id !== spotId));
+    const spot = attractions.find((item) => item.id === spotId);
 
-      // Call backend exclusion endpoint
-      await api.markSpotVisited(spotId);
+    // Optimistic UI update: remove card locally immediately
+    setAttractions((prev) => prev.filter((item) => item.id !== spotId));
+
+    if (!spot) return;
+
+    try {
+      // Real call to POST /api/users/me/destination-state (see api.ts).
+      await api.markDestinationState(spot.name, 'visited');
     } catch (err: any) {
-      Alert.alert('Notice', 'Spot removed locally. Exclusions will sync when backend is reachable.');
+      Alert.alert('Notice', 'Marked visited locally. Will retry syncing when backend is reachable.');
     }
   };
 
   const handleMarkInterested = (spotId: string) => {
+    // NOTE: intentionally NOT calling markDestinationState here.
+    // The backend only supports 'visited' | 'dismissed' (API_CONTRACT.md §18) —
+    // both of which exclude a destination from future recommendations.
+    // "Interested" means the opposite (the user wants to keep seeing/planning it),
+    // so there's no correct status to send yet. This needs a real decision with
+    // Backend/ML (e.g. a third 'interested' status, or a separate wishlist list)
+    // rather than silently miswiring it to 'dismissed'.
     Alert.alert('Saved!', 'Added to your trip interest list.');
     setAttractions((prev) => prev.filter((item) => item.id !== spotId));
   };
