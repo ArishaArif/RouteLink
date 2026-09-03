@@ -195,19 +195,22 @@ def build_intraday_plan(forecast_entries: list, df: pd.DataFrame, top_n: int = 6
 
         candidates = df[df["category"].isin(safe_categories)]
         if exclude:
-            # Filter out anything the user has already seen/visited, so
-            # repeat queries for the same city surface NEW options instead
-            # of the same fixed top-N every time. Backend owns tracking
-            # WHICH names go in this list (visited/dismissed state) --
-            # we just need to honor it when it's given to us.
-            candidates = candidates[~candidates["name"].isin(exclude)]
+            # Case-insensitive, matching the convention in
+            # content_recommender.py's recommend_similar/recommend_by_preferences.
+            # A plain .isin(exclude) is case-SENSITIVE -- "hunza valley"
+            # from a client wouldn't have matched stored "Hunza Valley"
+            # and would have silently failed to exclude anything.
+            exclude_lower = set(n.lower() for n in exclude)
+            candidates = candidates[~candidates["name"].str.lower().isin(exclude_lower)]
 
         picks = candidates["name"].head(top_n).tolist()
         suggestion = ", ".join(picks) if picks else FALLBACK_MESSAGE
+        needs_marketplace_data = len(picks) == 0
 
         rows.append({
             "date": date, "time": time, "temp_c": temp, "condition": condition,
             "heat_tier": heat_tier, "slot_type": slot_type, "suggestion": suggestion,
+            "needs_marketplace_data": needs_marketplace_data,
         })
 
     return pd.DataFrame(rows)
