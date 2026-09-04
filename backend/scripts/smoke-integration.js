@@ -4,7 +4,8 @@ const { spawn } = require('child_process');
 const BASE = process.env.BASE_URL || 'http://localhost:5000';
 const ALT_PORT = 5051;
 const ALT_BASE = `http://localhost:${ALT_PORT}`;
-const INGEST_KEY = process.env.ML_SERVICE_KEY || process.env.HAZARD_INGEST_KEY;
+const INGEST_KEY = process.env.HAZARD_INGEST_KEY;
+const SERVICE_KEY = process.env.ML_SERVICE_KEY;
 const stamp = Date.now();
 
 let passed = 0;
@@ -116,7 +117,11 @@ function waitForServer(base, attempts = 40) {
 
 async function main() {
   if (!INGEST_KEY) {
-    console.error('ML_SERVICE_KEY / HAZARD_INGEST_KEY is not set — cannot test hazard ingest.');
+    console.error('HAZARD_INGEST_KEY is not set — cannot test hazard ingest.');
+    process.exit(1);
+  }
+  if (!SERVICE_KEY) {
+    console.error('ML_SERVICE_KEY is not set — cannot test service itinerary writes.');
     process.exit(1);
   }
 
@@ -237,7 +242,7 @@ async function main() {
   section('5. MARKETPLACE ENRICHMENT from real Guide data');
   await step('service writes an indoor_rest day (needs_marketplace_data defaults true)', 200, 'PUT',
     `/api/trips/${tripId}/itinerary`, {
-      ingestKey: INGEST_KEY,
+      ingestKey: SERVICE_KEY,
       body: {
         source: 'ml',
         model_version: 'mock-ml-v0.0.1',
@@ -265,7 +270,7 @@ async function main() {
   });
   const emptyTripId = emptyTrip.body.trip.id;
   await call('PUT', `/api/trips/${emptyTripId}/itinerary`, {
-    ingestKey: INGEST_KEY,
+    ingestKey: SERVICE_KEY,
     body: {
       source: 'ml',
       days: [{ day_number: 1, date: '2026-12-01', slot_type: 'indoor_rest', activities: [] }],

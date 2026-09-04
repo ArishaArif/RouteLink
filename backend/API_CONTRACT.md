@@ -296,6 +296,41 @@ they are listed here so Mobile can correct them.
 Mobile also has **no type at all** for `Trip`, `Booking` or `ChatMessage`, and no auth/user type. Those
 three endpoints are built and tested; the types simply do not exist yet.
 
+### `AttractionSpot` — checked 2026-09-04 against §19
+
+`AttractionSpot` is the one mobile type that now **matches**, because §19 was
+built to it rather than the reverse. Two caveats:
+
+| field | mobile type says | §19 returns |
+| --- | --- | --- |
+| `latitude` / `longitude` | `number` (required) | `number \| null` — usually `null`, see §19. **Must be widened before passing to `MapView`** |
+| `forecasts` | `IntradayForecast[]` | never returned — `/api/schedule/intraday` is not wired to anything |
+
+`description` and `location` are derived strings, not dataset columns; `id` is a
+synthesised hash, not a database key. §19 explains both.
+
+### Design-system fields with no backend source (spec dated 2026-09-03)
+
+The Mobile design system shows guide and hazard fields this API does not have.
+None are broken today — the app does not request them — but they are not
+oversights on our side either, they do not exist:
+
+| shown in design | backend today |
+| --- | --- |
+| "Verified local guide" badge | no `isVerified` column on `guides` |
+| specialty tags (Mountaineering, K2 Base Camp, Glacier Safety) | no specialties column; `languages` is the only array |
+| review count ("234 reviews") | no reviews table; `rating` is `0.0` for every row |
+| years of experience ("12 Yrs") | no column |
+| guide list sorted by "Top Rated" | §4 deliberately sorts by `pricePerDay` — sorting by `rating` would rank arbitrarily while every value is `0.0` |
+| per-alert road name ("KKH km 247 near Passu") | `HazardAlert` has `region` and free-text `rawText`, no structured road/segment field |
+| per-alert passability status ("Passable for hikers and 4x4") | not modelled |
+| emergency hotline list (Rescue 1122, Hunza Police Base) | `POST /api/sos` returns `nearest.emergencyNumbers`, but the design's numbers appear hardcoded in the app |
+| route elevation profile, per-stop ETAs | `Itinerary.activities` has `time` and `title`; no elevation or ETA shape |
+
+Each of the first four is a `guides` column plus a migration. Ask before building
+— they are Day 7 scope at the earliest, and this repo has broken twice from model
+fields landing without a matching migration.
+
 **Numbers are numbers.** Every `DECIMAL` column (`budget`, `pricePerDay`, `rating`, `totalPrice`,
 `latitude`, `longitude`) is coerced by `utils/numeric.js` and crosses the wire as a JSON number, not a
 string. Do **not** wrap these in `parseFloat` — that guidance applied before `numericGetter` existed and
@@ -342,7 +377,7 @@ does with a created record.
 
 ## 11. Endpoint index
 
-Complete as of 2026-09-03. Auth column: **none** = public, **JWT** = header
+Complete as of 2026-09-04 — 26 endpoints. Auth column: **none** = public, **JWT** = header
 `Authorization: Bearer <token>`, **key** = header `X-Ingest-Key`, **optional** =
 JWT read if present but never required (affects which fields come back).
 
@@ -373,6 +408,7 @@ JWT read if present but never required (affects which fields come back).
 | `GET` | `/api/sos/nearest` | JWT | §14. `?lat=&lng=&radiusMeters=`. **Mocked provider** |
 | `POST` | `/api/users/me/destination-state` | JWT | §18. `destinationName`, `status`. Upsert — one row per (user, destination) |
 | `GET` | `/api/users/me/destination-state` | JWT | §18. Raw list for debugging; also returns the combined `excludeList` |
+| `GET` | `/api/recommendations` | JWT | §19. `?destination=` required, `?limit=` 1–20. Bridges AI/ML; degrades to mock, never fails |
 
 Non-participants on a booking get `404`, not `403` — the API does not confirm
 that a booking exists to someone who has no part in it.
@@ -619,6 +655,7 @@ to change when a teammate's service lands.
 | AI/ML itinerary generation | `services/itinerarySource.js` | `fetchItinerary(trip, dates, options)` — now carries `options.exclude` | response has `mocked: true`, `generator: "mock"`, `source: "ml-preview"` |
 | SOS nearest-service lookup | `services/sosLookup.js` | `findNearestServices({ latitude, longitude, radiusMeters })` | `nearest.mocked: true`, `nearest.provider: "mock"` |
 | Marketplace lodging/dining | `services/itineraryEnricher.js` | `buildMarketplace()` — `lodging` / `dining` | both arrays are always `[]` |
+| AI/ML recommendations | `services/mlClient.js` | already real — set `ML_SERVICE_URL`; falls back automatically | `source: "mock"` on the §19 response |
 
 `marketplace.guides` is **not** mocked — it is a real query against our own
 `Guide` table, filtered by region against the trip's destination. Only `lodging`
@@ -708,16 +745,154 @@ confirm with AI/ML, then flip.
 
 ### Wiring
 
-The exclude list is fetched inside `GET /api/trips/:id/itinerary` when the AI/ML
-source is enabled, and passed to `fetchItinerary` as `exclude`. The mock echoes
-it back (`excludeApplied`, `recommendationPool`); `services/itinerarySource.js`
-is the single swap point per §17, and the exclude parameter travels with it.
+The exclude list is fetched in two places and always applied:
 
-### Open question
+- `GET /api/recommendations` (§19) — the standalone pool Mobile reads.
+- `GET /api/trips/:id/itinerary` — on **both** branches as of Day 6. Previously
+  the exclude list was read only inside the `ITINERARY_ML_MOCK` branch, which is
+  off by default, so it never affected a default-configuration response. The
+  placeholder branch now returns `excludeApplied` and `recommendationPool` too.
 
-The mock filters case-insensitively. Whether the real recommender's exclude
-filter matches case-insensitively has not been confirmed — its dataset names
-preserve casing, so a plain `isin()` filter would silently fail to exclude
-`"hunza valley"` when stored as `"Hunza Valley"`. **Ask AI/ML before relying on
-this at runtime.**
+### Case sensitivity — resolved 2026-09-04
 
+Confirmed against `ml-pipeline/scripts/content_recommender.py` now that it is in
+the repo: the real recommender **does** filter case-insensitively.
+`recommend_similar` builds `exclude_set = set(n.lower() for n in exclude)` and
+compares `candidate_name.lower()`; `recommend_by_preferences` uses
+`~result["name"].str.lower().isin(exclude_set)`; the destination lookup itself is
+`df["name"].str.lower() == name.lower()`. So `"hunza valley"` stored by us
+correctly excludes `"Hunza Valley"` in their dataset. The earlier `isin()`
+concern does not apply. Backend lowercases on its own side as well, so the
+filtering is correct regardless of which layer does it.
+
+Their `top_n` also defaults to `8`, matching the pool size we ask for.
+
+
+---
+
+## 19. `GET /api/recommendations` — the AI/ML bridge
+
+Added Day 6. Mobile was already calling this path (`api.getRecommendations` in
+`RouteLinkMobile/src/services/api.ts`) against a route that did not exist, so
+every call 404'd and `TripPlannerScreen` threw. The route now exists and bridges
+three mismatches at once:
+
+| mismatch | Mobile expects | AI/ML service provides | what backend does |
+| --- | --- | --- | --- |
+| verb + path | `GET /api/recommendations?destination=` | `POST /api/recommend/similar/{name}` | translates the call |
+| row shape | `AttractionSpot` — `id`, `name`, `description`, `location`, `latitude`, `longitude`, `imageUrl` | `name`, `category`, `province`, `similarity_score` | derives the missing fields |
+| exclusions | nothing sent | `exclude` query list | injects the caller's §18 list |
+
+### Request
+
+`GET /api/recommendations?destination=Hunza%20Valley&limit=8` — JWT required.
+
+| param | required | notes |
+| --- | --- | --- |
+| `destination` | yes | non-empty, max 255 chars. The anchor to find similar places to |
+| `limit` | no | pool size, `1`–`20`, default `8`. Out of range is a `400`, not a clamp |
+
+`limit` is an upper bound, not a guarantee. On the mock path the pool is capped
+by the 11-entry `CANDIDATE_DESTINATIONS` list minus the origin and the caller's
+exclusions, so a `limit=20` returns 10 rather than 20. Read `count`, do not
+assume it equals `limit`. On the real ML path the ceiling is their catalog, and
+`top_n` travels upstream unchanged.
+
+### Response `200`
+
+```json
+{
+  "destination": "Hunza Valley",
+  "count": 8,
+  "source": "ml",
+  "mocked": false,
+  "degraded": false,
+  "reason": null,
+  "excludeApplied": ["passu cones", "SKARDU"],
+  "recommendations": [
+    {
+      "id": "6cffb394-d948-5ab1-8138-7bdb89dfe6b5",
+      "name": "Passu Cones",
+      "category": "mountain",
+      "province": "Gilgit-Baltistan",
+      "location": "Gilgit-Baltistan",
+      "description": "Passu Cones is a mountain in Gilgit-Baltistan.",
+      "latitude": null,
+      "longitude": null,
+      "imageUrl": null,
+      "score": 0.91
+    }
+  ]
+}
+```
+
+### The four derived fields, and why
+
+AI/ML returns three columns. Mobile's `AttractionCard` renders seven fields and
+`handleMarkVisited` looks rows up by `spot.id`, so these are synthesised here
+rather than in the app:
+
+- **`id`** — a deterministic UUIDv5-shaped value hashed from the lowercased name
+  (`utils/destinationIdentity.js`). It is **not** a database key; nothing is
+  stored. Same name always yields the same id, across processes and restarts, so
+  Mobile can use it as a React key and for local list removal. Do not send it
+  back to us as a foreign key — `POST /api/users/me/destination-state` still
+  takes the **name**, per §18.
+- **`description`** — composed from `category` + `province`. The dataset has a
+  real `description` column, but `recommend_similar` does not select it. If AI/ML
+  adds it to their response, backend passes it through unchanged.
+- **`location`** — `province`, falling back to `"Pakistan"`. Mobile renders it
+  under a pin icon.
+- **`latitude` / `longitude`** — **usually `null`.** The dataset has coordinates
+  (`load_destinations.py` drops rows missing them) but `recommend_similar`
+  selects only `name`, `category`, `province`. Backend backfills coords for the
+  11 destinations it knows from `itinerarySource.CANDIDATE_DESTINATIONS` and
+  leaves the rest `null`. **Ask AI/ML to add `latitude`/`longitude` to the
+  recommender's column selection** — it is a one-line change on their side and
+  removes the need for this backfill entirely. Until then, Mobile must treat
+  both as nullable before handing them to `MapView`.
+
+`imageUrl` is always `null`. `ml-pipeline/scripts/wikimedia_photo_lookup.py`
+exists but nothing joins its output into the recommendation path yet.
+
+### Degradation — this endpoint does not fail
+
+`ML_SERVICE_URL` unset, service down, timeout, non-2xx, or a destination absent
+from their 69-name catalog all return `200` with a usable pool from the existing
+mock candidate list. `source`, `mocked`, `degraded` and `reason` say what
+happened:
+
+| situation | `source` | `degraded` | `reason` |
+| --- | --- | --- | --- |
+| real service answered | `ml` | `false` | `null` |
+| `ML_SERVICE_URL` not set | `mock` | `false` | `ml_service_not_configured` |
+| service unreachable | `mock` | `true` | `unreachable` |
+| service timed out | `mock` | `true` | `timeout` |
+| service returned 5xx | `mock` | `true` | `upstream_error` |
+| destination not in their catalog | `mock` | `true` | `not_in_catalog` |
+
+`degraded: false` with `source: "mock"` is the deliberate local-dev state, not a
+fault. Mobile should not branch on these fields for rendering — the pool is the
+same shape either way — but they are worth logging.
+
+### Configuration
+
+```
+ML_SERVICE_URL=http://localhost:8000
+ML_SERVICE_TIMEOUT_MS=4000
+```
+
+Leave `ML_SERVICE_URL` empty and everything runs off the mock. Note that
+`ml-pipeline/app.py` reads `data/processed/destinations_clean.csv` at import, and
+that file is gitignored — the service will not start until someone runs
+`load_destinations.py` locally. `npm run ml:stub` starts a small local stand-in
+on port 8099 that speaks the same contract, which is what `smoke:day6` runs
+against.
+
+### Fourth swap point
+
+§17 lists three. This is the fourth: `services/mlClient.js` is the only file
+that speaks HTTP to AI/ML, and `services/recommendationService.js` decides
+between real and fallback. The other ML endpoints they expose
+(`/api/recommend/preferences`, `/api/schedule/intraday`, `/api/predict/hazard`)
+are **not** wired to anything yet.

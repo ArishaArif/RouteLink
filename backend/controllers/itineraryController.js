@@ -2,6 +2,7 @@ const { Trip, Itinerary, sequelize } = require('../models');
 const { enrichItinerary } = require('../services/itineraryEnricher');
 const itinerarySource = require('../services/itinerarySource');
 const { getUserExcludeList } = require('../services/getUserExcludeList');
+const { getRecommendations } = require('../services/recommendationService');
 const {
   HEAT_TIERS,
   SLOT_TYPES,
@@ -331,6 +332,7 @@ async function getItinerary(req, res, next) {
       });
 
       const days = await enrichItinerary(normalized, trip);
+      const pool = await getRecommendations(trip.destination, { exclude: excludeList });
 
       return res.status(200).json({
         tripId: trip.id,
@@ -340,7 +342,8 @@ async function getItinerary(req, res, next) {
         generator: fetched.generator,
         generatedAt: new Date().toISOString(),
         excludeApplied: Array.isArray(fetched.excludeApplied) ? fetched.excludeApplied : excludeList,
-        recommendationPool: Array.isArray(fetched.recommendations) ? fetched.recommendations : [],
+        recommendationPool: pool.recommendations,
+        recommendationSource: pool.source,
         days: days.length,
         modelVersion: fetched.modelVersion,
         itinerary: days,
@@ -363,11 +366,17 @@ async function getItinerary(req, res, next) {
       modelVersion: null,
     }));
 
+    const excludeList = await getUserExcludeList(trip.userId);
+    const pool = await getRecommendations(trip.destination, { exclude: excludeList });
+
     return res.status(200).json({
       tripId: trip.id,
       destination: trip.destination,
       source: 'placeholder',
       generatedAt: new Date().toISOString(),
+      excludeApplied: excludeList,
+      recommendationPool: pool.recommendations,
+      recommendationSource: pool.source,
       days: itinerary.length,
       modelVersion: null,
       itinerary,

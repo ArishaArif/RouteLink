@@ -6,9 +6,22 @@ const { sequelize } = require('./models');
 
 const app = express();
 
-if (process.env.TRUST_PROXY) {
-  const hops = Number.parseInt(process.env.TRUST_PROXY, 10);
-  app.set('trust proxy', Number.isFinite(hops) ? hops : process.env.TRUST_PROXY);
+function trustProxySetting(raw) {
+  const value = raw.trim();
+  if (value === 'true') {
+    return true;
+  }
+  if (value === 'false') {
+    return false;
+  }
+  if (/^\d+$/.test(value)) {
+    return Number.parseInt(value, 10);
+  }
+  return value;
+}
+
+if (process.env.TRUST_PROXY && process.env.TRUST_PROXY.trim() !== '') {
+  app.set('trust proxy', trustProxySetting(process.env.TRUST_PROXY));
 }
 
 const allowedOrigins = (process.env.CORS_ORIGINS || '')
@@ -36,6 +49,7 @@ app.use('/api/guides', require('./routes/guides'));
 app.use('/api/bookings', require('./routes/bookings'));
 app.use('/api/hazards', require('./routes/hazards'));
 app.use('/api/sos', require('./routes/sos'));
+app.use('/api/recommendations', require('./routes/recommendations'));
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found', method: req.method, path: req.originalUrl });

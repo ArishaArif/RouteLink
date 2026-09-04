@@ -4,25 +4,26 @@ const MOCK_MODEL_VERSION = 'mock-ml-v0.0.1';
 const RECOMMENDATION_POOL_SIZE = 8;
 
 const CANDIDATE_DESTINATIONS = [
-  { name: 'Hunza Valley', category: 'valley', province: 'Gilgit-Baltistan' },
-  { name: 'Fairy Meadows', category: 'meadow', province: 'Gilgit-Baltistan' },
-  { name: 'Skardu', category: 'town', province: 'Gilgit-Baltistan' },
-  { name: 'Attabad Lake', category: 'lake', province: 'Gilgit-Baltistan' },
-  { name: 'Naltar Valley', category: 'valley', province: 'Gilgit-Baltistan' },
-  { name: 'Deosai National Park', category: 'plateau', province: 'Gilgit-Baltistan' },
-  { name: 'Khunjerab Pass', category: 'mountain pass', province: 'Gilgit-Baltistan' },
-  { name: 'Neelum Valley', category: 'valley', province: 'Azad Kashmir' },
-  { name: 'Ratti Gali Lake', category: 'lake', province: 'Azad Kashmir' },
-  { name: 'Swat Valley', category: 'valley', province: 'Khyber Pakhtunkhwa' },
-  { name: 'Kalash Valleys', category: 'valley', province: 'Khyber Pakhtunkhwa' },
+  { name: 'Hunza Valley', category: 'valley', province: 'Gilgit-Baltistan', latitude: 36.3167, longitude: 74.6500 },
+  { name: 'Fairy Meadows', category: 'meadow', province: 'Gilgit-Baltistan', latitude: 35.3869, longitude: 74.5786 },
+  { name: 'Skardu', category: 'town', province: 'Gilgit-Baltistan', latitude: 35.2971, longitude: 75.6333 },
+  { name: 'Attabad Lake', category: 'lake', province: 'Gilgit-Baltistan', latitude: 36.3417, longitude: 74.8681 },
+  { name: 'Naltar Valley', category: 'valley', province: 'Gilgit-Baltistan', latitude: 36.1667, longitude: 74.1833 },
+  { name: 'Deosai National Park', category: 'plateau', province: 'Gilgit-Baltistan', latitude: 34.9667, longitude: 75.4000 },
+  { name: 'Khunjerab Pass', category: 'mountain pass', province: 'Gilgit-Baltistan', latitude: 36.8500, longitude: 75.4333 },
+  { name: 'Neelum Valley', category: 'valley', province: 'Azad Kashmir', latitude: 34.5889, longitude: 73.9078 },
+  { name: 'Ratti Gali Lake', category: 'lake', province: 'Azad Kashmir', latitude: 34.8000, longitude: 74.0333 },
+  { name: 'Swat Valley', category: 'valley', province: 'Khyber Pakhtunkhwa', latitude: 35.2227, longitude: 72.4258 },
+  { name: 'Kalash Valleys', category: 'valley', province: 'Khyber Pakhtunkhwa', latitude: 35.7167, longitude: 71.7000 },
 ];
 
-function rankCandidates(exclude) {
+function rankCandidates(exclude, limit = RECOMMENDATION_POOL_SIZE) {
   const excluded = new Set(exclude.map((name) => destinationKey(name)));
+  const size = Number.isFinite(limit) && limit > 0 ? limit : RECOMMENDATION_POOL_SIZE;
 
   return CANDIDATE_DESTINATIONS
     .filter((candidate) => !excluded.has(destinationKey(candidate.name)))
-    .slice(0, RECOMMENDATION_POOL_SIZE)
+    .slice(0, size)
     .map((candidate, index) => ({
       ...candidate,
       score: Number((0.95 - index * 0.06).toFixed(3)),

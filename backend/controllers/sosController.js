@@ -9,6 +9,19 @@ function unknownKeys(body, allowed) {
   return Object.keys(body).filter((key) => !allowed.includes(key));
 }
 
+function firstPresent(...values) {
+  for (const value of values) {
+    if (value === undefined || value === null) {
+      continue;
+    }
+    if (typeof value === 'string' && value.trim() === '') {
+      continue;
+    }
+    return value;
+  }
+  return undefined;
+}
+
 function validateCoordinates(latitude, longitude, details) {
   if (!isFiniteNumber(latitude) || !isInRange(latitude, -90, 90)) {
     details.push('latitude is required and must be a number between -90 and 90');
@@ -87,17 +100,14 @@ async function triggerSos(req, res, next) {
 async function nearestServices(req, res, next) {
   try {
     const details = [];
-    const latitude = req.query.lat ?? req.query.latitude;
-    const longitude = req.query.lng ?? req.query.longitude;
+    const latitude = firstPresent(req.query.lat, req.query.latitude);
+    const longitude = firstPresent(req.query.lng, req.query.longitude);
 
-    const parsedLat = latitude === undefined ? undefined : Number(latitude);
-    const parsedLng = longitude === undefined ? undefined : Number(longitude);
+    validateCoordinates(latitude, longitude, details);
+    const radiusMeters = resolveRadius(firstPresent(req.query.radiusMeters), details);
 
-    validateCoordinates(parsedLat, parsedLng, details);
-    const radiusMeters = resolveRadius(
-      req.query.radiusMeters === undefined ? undefined : Number(req.query.radiusMeters),
-      details
-    );
+    const parsedLat = Number(latitude);
+    const parsedLng = Number(longitude);
 
     if (details.length > 0) {
       return res.status(400).json({ error: 'Validation failed', details });

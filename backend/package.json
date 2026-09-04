@@ -16,6 +16,8 @@
     "smoke:day3": "node scripts/smoke-day3.js",
     "smoke:day4": "node scripts/smoke-day4.js",
     "smoke:day5": "node scripts/smoke-day5.js",
+    "smoke:day6": "node scripts/smoke-day6.js",
+    "ml:stub": "node scripts/ml-stub.js",
     "smoke:integration": "node scripts/smoke-integration.js"
   },
   "dependencies": {

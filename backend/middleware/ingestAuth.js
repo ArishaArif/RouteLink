@@ -1,7 +1,11 @@
 const crypto = require('crypto');
 
-function serviceKey() {
-  return process.env.ML_SERVICE_KEY || process.env.HAZARD_INGEST_KEY;
+function hazardIngestKey() {
+  return process.env.HAZARD_INGEST_KEY;
+}
+
+function mlServiceKey() {
+  return process.env.ML_SERVICE_KEY;
 }
 
 function safeEqual(provided, expected) {
@@ -13,8 +17,7 @@ function safeEqual(provided, expected) {
   return crypto.timingSafeEqual(providedBuffer, expectedBuffer);
 }
 
-function hasValidServiceKey(req) {
-  const expected = serviceKey();
+function matchesKey(req, expected) {
   if (!expected) {
     return false;
   }
@@ -22,14 +25,28 @@ function hasValidServiceKey(req) {
   return typeof provided === 'string' && safeEqual(provided, expected);
 }
 
+function hasValidHazardIngestKey(req) {
+  return matchesKey(req, hazardIngestKey());
+}
+
+function hasValidServiceKey(req) {
+  return matchesKey(req, mlServiceKey());
+}
+
 function requireIngestKey(req, res, next) {
-  if (!serviceKey()) {
+  if (!hazardIngestKey()) {
     return res.status(500).json({ error: 'Hazard ingest is not configured on this server' });
   }
-  if (!hasValidServiceKey(req)) {
+  if (!hasValidHazardIngestKey(req)) {
     return res.status(401).json({ error: 'Missing or invalid ingest key' });
   }
   return next();
 }
 
-module.exports = { requireIngestKey, hasValidServiceKey, serviceKey };
+module.exports = {
+  requireIngestKey,
+  hasValidServiceKey,
+  hasValidHazardIngestKey,
+  hazardIngestKey,
+  mlServiceKey,
+};
