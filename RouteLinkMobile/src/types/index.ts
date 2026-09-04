@@ -1,3 +1,10 @@
+export type RootTabParamList = {
+  Home: undefined;
+  TripPlanner: undefined;
+  SOS: undefined;
+  Marketplace: undefined;
+  Profile: undefined;
+};
 // --- Auth & User ---
 export interface User {
   id: string; // UUID v4

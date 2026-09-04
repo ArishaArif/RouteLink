@@ -4,8 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { RootTabParamList } from '../types';
 
 import HomeScreen from '../screens/HomeScreen';
-import TripPlannerScreen from '../screens/TripPlannerScreen';
-import SOSScreen from '../screens/SOSScreen';
+import { TripPlannerScreen } from '../screens/TripPlannerScreen';
+import { SOSScreen } from '../screens/SOSScreen';
 import MarketplaceScreen from '../screens/MarketplaceScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 
