@@ -11,6 +11,7 @@ Run: uvicorn app:app --reload
 from fastapi import FastAPI, Query, HTTPException
 from typing import List, Optional
 from pydantic import BaseModel
+import os
 import pandas as pd
 
 from scripts.content_recommender import (
@@ -23,6 +24,8 @@ from scripts.weather_scheduler import (
     build_intraday_plan,
     build_mixed_week_mock,
     filter_nearby_destinations,
+    get_city_coords,
+    fetch_full_forecast,
     CITY_COORDS,
 )
 from scripts.hazard_classifier import predict_hazard
@@ -120,20 +123,39 @@ def get_similar_recommendations(dest_name: str, top_n: int = 5,
 
 @app.post("/api/schedule/intraday")
 def get_intraday_schedule(req: IntradayPlanRequest):
-    if req.city not in CITY_COORDS:
-        raise HTTPException(status_code=400, detail=f"City '{req.city}' coordinates not found.")
+    """
+    FIX: previously only checked `city in CITY_COORDS` (5 hardcoded
+    cities), 400-ing on anything else even when a live WEATHER_API_KEY
+    was available and could geocode it via get_city_coords(). Now uses
+    the same resolution path weather_scheduler.py's own main() uses:
+    CITY_COORDS first (fast, no API call for known hubs), falling back to
+    live geocoding. Also now pulls a real forecast when WEATHER_API_KEY is
+    set, instead of always using the mock week -- matching main()'s
+    behavior so the service and the CLI script no longer diverge.
+    """
+    api_key = os.getenv("WEATHER_API_KEY")
 
-    lat, lon = CITY_COORDS[req.city]
+    try:
+        if api_key:
+            lat, lon = get_city_coords(req.city, api_key)
+        elif req.city in CITY_COORDS:
+            lat, lon = CITY_COORDS[req.city]
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"City '{req.city}' not in CITY_COORDS and no WEATHER_API_KEY "
+                       f"set to geocode it live.",
+            )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     nearby = filter_nearby_destinations(_destinations_df, lat, lon)
 
-    # Still mock forecast data -- this endpoint doesn't take a
-    # WEATHER_API_KEY or a real forecast source as input, unlike
-    # weather_scheduler.py's own main(). Left as-is (not a bug, just an
-    # honest limit): wiring a live forecast into this endpoint is a
-    # separate, larger change (deciding how the service authenticates to
-    # OpenWeatherMap, whether the key is per-request or service-wide, etc.)
-    # and wasn't part of what was reported broken.
-    entries = build_mixed_week_mock()
+    if api_key:
+        entries = fetch_full_forecast(lat, lon, api_key)
+    else:
+        entries = build_mixed_week_mock()
+
     plan = build_intraday_plan(entries, nearby, top_n=6, exclude=req.exclude)
     return plan.to_dict(orient="records")
 

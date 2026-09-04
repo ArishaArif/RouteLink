@@ -16,12 +16,21 @@ import pandas as pd
 import joblib
 from dotenv import load_dotenv
 
+# See hazard_classifier.py for why this needs a try/except: this file is
+# normally run directly (scripts/ on sys.path), but could also be
+# imported from the project root, where the import path differs.
+try:
+    from scripts.hazard_keywords import HAZARD_KEYWORDS
+except ImportError:
+    from hazard_keywords import HAZARD_KEYWORDS
+
 load_dotenv()
 
 DESTINATIONS_PATH = "data/processed/destinations_clean.csv"
 MODEL_PATH = "models/hazard_classifier.joblib"
 VECTORIZER_PATH = "models/hazard_vectorizer.joblib"
 OUTPUT_PATH = "data/processed/hazard_alerts.csv"
+DEBUG_RAW_PATH = "data/processed/articles_raw_debug.csv"
 
 # We tried NewsAPI's AND/OR/quoted-phrase boolean syntax and confirmed
 # (empirically, via totalResults counts) that it's NOT being honored on
@@ -46,8 +55,8 @@ SEARCH_QUERIES = ["landslide Pakistan", "flood Pakistan", "avalanche Pakistan",
 # Pakistan/region mention in the SAME text is a cheap, high-precision
 # filter -- most of yesterday's junk (crime stories, elections, sports)
 # would never pass this, regardless of what the ML model thinks.
-HAZARD_KEYWORDS = ["landslide", "flood", "avalanche", "road closed", "road blocked",
-                   "snowfall", "glacier", "blocked", "closure", "stranded", "rescue"]
+# HAZARD_KEYWORDS now lives in hazard_keywords.py (shared with
+# hazard_classifier.py's predict_hazard) so both stay in sync.
 
 # Northern Pakistan tourism provinces -- where hazard/rerouting logic
 # actually matters for this app (per the problem statement). Punjab/
@@ -114,7 +123,38 @@ def build_region_keywords(destinations_df: pd.DataFrame) -> list:
     # mapping for location-matching; reusing it here keeps both systems
     # in sync instead of maintaining two separate place-name lists.
     alias_keywords = list(DESTINATION_ALIASES.keys())
-    broad_terms = ["pakistan", "karakoram", "himalaya"]
+    # A few broad terms describing the wider region -- deliberately NOT
+    # including "himalaya" here. The Himalayas span Nepal, India, Bhutan,
+    # and Pakistan; that word alone let Nepal disaster coverage (Broad
+    # Peak/Nepal glacial flood stories) pass the region gate incorrectly
+    # in testing, since it matched on "Himalayan disaster" regardless of
+    # country. "karakoram" stays -- that range is specifically
+    # Pakistan/Gilgit-Baltistan, not shared across multiple countries.
+    #
+    # "khunjerab" added for the same reason "karakoram" was kept: it's
+    # unambiguous (the Khunjerab Pass/border crossing is specific to
+    # Gilgit-Baltistan, not a name shared with any other country) and it
+    # isn't a catalog destination name or an existing alias, so without
+    # this it fails the region gate entirely. Confirmed by running the
+    # pipeline: "Khunjerab Pass closed due to heavy snowfall" -- the exact
+    # test case hazard_classifier.py itself uses to prove the false-
+    # negative fix worked -- was being silently dropped here, before the
+    # ML model ever saw it.
+    #
+    # The terms below (swat, chitral, shangla, kohistan, diamer, astore,
+    # ghizer, nagar, muzaffarabad) are NOT tourism destinations in the
+    # catalog -- they're administrative districts of northern Pakistan
+    # that real hazard journalism routinely names directly (e.g.
+    # "Flooding reported in Swat as heavy rains continue"), without
+    # saying "Pakistan" and without mentioning any catalog destination.
+    # Confirmed on a real run: with only the tourism catalog + pakistan/
+    # karakoram/khunjerab as region terms, 0 of 113 real fetched articles
+    # passed the gate -- a plausible chunk of that is exactly this class
+    # of article, not just off-topic noise. "kpk" added too -- it's the
+    # near-universal shorthand Pakistani outlets use for Khyber
+    # Pakhtunkhwa in headlines.
+    broad_terms = ["pakistan", "karakoram", "khunjerab", "swat", "chitral", "shangla",
+                   "kohistan", "diamer", "astore", "ghizer", "nagar", "muzaffarabad", "kpk"]
     return list(dict.fromkeys(name_keywords + province_keywords + alias_keywords + broad_terms))
 
 # News articles use colloquial/common place names that don't always match
@@ -425,6 +465,16 @@ def main():
     dropped = len(articles_df) - gate_mask.sum()
     print(f"Keyword gate: kept {gate_mask.sum()} of {len(articles_df)} articles "
           f"({dropped} dropped as off-topic before classification)")
+
+    # Always saved, regardless of gate outcome -- a run that quietly keeps
+    # 0 or very few articles is hard to debug from a single 5-line console
+    # sample: was the gate too strict, or was there genuinely no relevant
+    # news? This dump makes it possible to check EVERY fetched article's
+    # title/description against passes_keyword_gate by hand, not just the
+    # ones that happened to pass.
+    articles_df.assign(passed_gate=gate_mask).to_csv(DEBUG_RAW_PATH, index=False)
+    print(f"Saved all {len(articles_df)} fetched articles (pre-gate, with pass/fail flag) "
+          f"to {DEBUG_RAW_PATH} for manual review")
 
     if gate_mask.sum() == 0:
         print("\nGate rejected everything -- sample of what came back, for debugging:")

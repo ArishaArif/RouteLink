@@ -13,6 +13,17 @@ Run: python scripts/hazard_classifier.py
 
 import pandas as pd
 import joblib
+
+# Handles two valid ways this file gets imported: directly (`python3
+# scripts/hazard_classifier.py` -- scripts/ itself is on sys.path, so
+# "scripts.hazard_keywords" doesn't resolve) and via app.py at the
+# project root (`from scripts.hazard_classifier import ...` -- here
+# root is on sys.path, so a bare "hazard_keywords" doesn't resolve).
+# Try the absolute (package) form first, fall back to the bare form.
+try:
+    from scripts.hazard_keywords import HAZARD_KEYWORDS
+except ImportError:
+    from hazard_keywords import HAZARD_KEYWORDS
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB
@@ -127,16 +138,22 @@ def predict_hazard(texts: list, threshold: float = 0.35) -> list:
     classify a batch of raw text strings as hazard / not-hazard.
 
     This is the callable entry point app.py's FastAPI service imports.
-    It didn't exist before -- `from scripts.hazard_classifier import
-    predict_hazard` was importing a name this file never defined, which
-    means the whole service failed to start (ImportError), not just this
-    one endpoint.
 
-    threshold defaults to 0.35, matching the same recall-favoring cutoff
-    hazard_news_scraper.py already uses in classify_articles() -- for a
-    safety app a missed hazard is worse than an extra false alert, and
-    both callers should share that judgment call rather than silently
-    drifting apart on it.
+    is_hazard now requires BOTH: (1) confidence >= threshold, AND (2) at
+    least one literal hazard keyword present in the text. Previously this
+    function relied on ML confidence alone, which let mundane text near
+    the threshold slip through -- e.g. "Lovely weather today" scored 0.359
+    (just above the 0.35 cutoff) and got flagged as a hazard, despite
+    containing no hazard-related word at all. hazard_news_scraper.py's
+    pipeline was already protected from this by its own keyword gate
+    running BEFORE classification; this brings that same protection
+    directly into predict_hazard() so every caller gets it (including the
+    /api/predict/hazard endpoint, which had no such gate at all before).
+
+    hazard_confidence is still reported as the RAW model score, unfiltered
+    -- so callers can see what the model actually thought, even on cases
+    the keyword gate overrides to not-hazard. is_hazard is the safe,
+    gated decision; hazard_confidence is the transparent raw number.
     """
     model = joblib.load(MODEL_PATH)
     vectorizer = joblib.load(VECTORIZER_PATH)
@@ -144,11 +161,15 @@ def predict_hazard(texts: list, threshold: float = 0.35) -> list:
     X = vectorizer.transform(texts)
     confidences = model.predict_proba(X)[:, 1]
 
+    def has_hazard_keyword(text: str) -> bool:
+        text = text.lower()
+        return any(kw in text for kw in HAZARD_KEYWORDS)
+
     return [
         {
             "text": text,
             "hazard_confidence": round(float(conf), 3),
-            "is_hazard": bool(conf >= threshold),
+            "is_hazard": bool(conf >= threshold) and has_hazard_keyword(text),
         }
         for text, conf in zip(texts, confidences)
     ]

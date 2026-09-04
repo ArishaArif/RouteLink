@@ -381,6 +381,29 @@ def load_hazard_context(region_names: list) -> dict:
     }
 
 
+def _activity_fields(row) -> tuple:
+    """
+    Split a single time-slot's `suggestion` text into the shape §5 actually
+    wants: a SHORT `title`, with any longer detail moved to `notes` (and
+    the top pick, where there is one, into `location`).
+
+    Bug this fixes: activities[].title was previously set directly to
+    `row["suggestion"]`, which for a fallback slot is the full multi-
+    sentence FALLBACK_MESSAGE and for a normal slot is a raw comma-joined
+    list of every nearby destination -- neither is a "title" in the sense
+    the contract's own examples show (`"title": "Rest and refuel"`,
+    `"title": "Baltit Fort walk"`: short, human-readable labels). The full
+    detail isn't dropped, just relocated to the field meant for it.
+    """
+    if row["suggestion"] == FALLBACK_MESSAGE:
+        # Exact phrase from the contract's own example for this case.
+        return "Rest and refuel", FALLBACK_MESSAGE, None
+
+    picks = [p.strip() for p in row["suggestion"].split(",")]
+    title = f"Visit {picks[0]}" if len(picks) == 1 else f"Visit {picks[0]} (+{len(picks) - 1} more nearby)"
+    return title, row["suggestion"], picks[0]
+
+
 def build_itinerary_days(intraday: pd.DataFrame, nearby_df: pd.DataFrame,
                            start_day_number: int = 1) -> list:
     """
@@ -413,14 +436,19 @@ def build_itinerary_days(intraday: pd.DataFrame, nearby_df: pd.DataFrame,
         present_tiers = [t for t in heat_severity_order if t in mapped_heat_tiers.values]
         day_heat_tier = present_tiers[-1] if present_tiers else None
 
-        activities = [
-            {
+        activities = []
+        for _, row in day_df.iterrows():
+            title, notes, location = _activity_fields(row)
+            activity = {
                 "time": row["time"],
-                "title": row["suggestion"],
+                "title": title,
                 "slotType": map_slot_type(row["slot_type"]),
             }
-            for _, row in day_df.iterrows()
-        ]
+            if notes:
+                activity["notes"] = notes
+            if location:
+                activity["location"] = location
+            activities.append(activity)
 
         day_payload = {
             "dayNumber": day_number,
