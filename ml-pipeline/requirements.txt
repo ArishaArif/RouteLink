@@ -19,3 +19,4 @@ urllib3==2.7.0
 feedparser
 fastapi 
 uvicorn
+pandas 
