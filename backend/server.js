@@ -1,11 +1,36 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 const { sequelize } = require('./models');
 
 const app = express();
 
-app.use(cors());
+function trustProxySetting(raw) {
+  const value = raw.trim();
+  if (value === 'true') {
+    return true;
+  }
+  if (value === 'false') {
+    return false;
+  }
+  if (/^\d+$/.test(value)) {
+    return Number.parseInt(value, 10);
+  }
+  return value;
+}
+
+if (process.env.TRUST_PROXY && process.env.TRUST_PROXY.trim() !== '') {
+  app.set('trust proxy', trustProxySetting(process.env.TRUST_PROXY));
+}
+
+const allowedOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+app.use(helmet());
+app.use(cors(allowedOrigins.length > 0 ? { origin: allowedOrigins, credentials: true } : undefined));
 app.use(express.json());
 
 app.get('/health', async (req, res) => {
@@ -18,7 +43,13 @@ app.get('/health', async (req, res) => {
 });
 
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/users', require('./routes/users'));
 app.use('/api/trips', require('./routes/trips'));
+app.use('/api/guides', require('./routes/guides'));
+app.use('/api/bookings', require('./routes/bookings'));
+app.use('/api/hazards', require('./routes/hazards'));
+app.use('/api/sos', require('./routes/sos'));
+app.use('/api/recommendations', require('./routes/recommendations'));
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found', method: req.method, path: req.originalUrl });

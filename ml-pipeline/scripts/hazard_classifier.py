@@ -211,6 +211,17 @@ def main():
     joblib.dump(vectorizer, VECTORIZER_PATH)
     print(f"\nSaved model to {MODEL_PATH} and vectorizer to {VECTORIZER_PATH}")
 
+    # Temporary mock to unblock Day 5 UI integration
+def predict_hazard(text: str):
+    return {
+        "sourceType": "ml-nlp",
+        "rawText": text,
+        "hazardType": "natural_disaster",
+        "region": "Hunza",
+        "severity": "high",
+        "description": "Mocked hazard pipeline for UI testing."
+    }
+
 
 if __name__ == "__main__":
     main()
