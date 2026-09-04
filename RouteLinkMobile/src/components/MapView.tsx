@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Platform } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN;
@@ -161,6 +161,23 @@ export default function MapView({
     </body>
     </html>
   `;
+
+  // react-native-webview doesn't support the web platform at all (it throws
+  // "React Native WebView does not support this platform"). On web we can
+  // render the exact same Mapbox HTML directly in an <iframe> instead --
+  // no native module needed there.
+  if (Platform.OS === 'web') {
+    return (
+      <View style={styles.container}>
+        {/* @ts-ignore -- react-native-web passes iframe props straight through */}
+        <iframe
+          srcDoc={html}
+          style={{ width: '100%', height: '100%', border: 0 }}
+          title="RouteLink map"
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

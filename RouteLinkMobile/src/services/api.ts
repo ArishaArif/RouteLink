@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import { TripItinerary, Trip, Booking, ChatMessage, Guide, HazardAlert } from '../types';
+import { TripItinerary, Trip, Booking, ChatMessage, Guide, HazardAlert, AuthResponse } from '../types';
 
 // Android Emulator uses 10.0.2.2 to point to host's localhost:5000
 const BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:5000' : 'http://localhost:5000';
@@ -15,6 +15,28 @@ const getHeaders = () => ({
 });
 
 export const api = {
+  // --- Auth ---
+  async signup(name: string, email: string, password: string): Promise<AuthResponse> {
+    const res = await fetch(`${BASE_URL}/api/auth/signup`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ name, email, password }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.error || data?.message || 'Signup failed');
+    return data;
+  },
+  async login(email: string, password: string): Promise<AuthResponse> {
+    const res = await fetch(`${BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.error || data?.message || 'Login failed');
+    return data;
+  },
+
   // --- Trips & Itineraries ---
   async createTrip(tripData: { title: string; destination: string; startDate: string; endDate: string; budget?: number }): Promise<Trip> {
     const res = await fetch(`${BASE_URL}/api/trips`, {
@@ -52,7 +74,11 @@ export const api = {
       body: JSON.stringify(booking),
     });
     if (!res.ok) throw new Error(`Failed to create booking: ${res.statusText}`);
-    return res.json();
+    const data = await res.json();
+    // Backend wraps this as { booking: {...}, days: N } -- returning the
+    // raw response here (as before) meant callers got `booking.id ===
+    // undefined`, which silently broke the booking -> chat handoff.
+    return data.booking;
   },
   async sendMessage(bookingId: string, text: string): Promise<ChatMessage> {
     const res = await fetch(`${BASE_URL}/api/bookings/${bookingId}/messages`, {
@@ -61,7 +87,18 @@ export const api = {
       body: JSON.stringify({ text }),
     });
     if (!res.ok) throw new Error(`Failed to send message: ${res.statusText}`);
-    return res.json();
+    const data = await res.json();
+    // Same wrapper issue: backend returns { message: {...}, sentAs: role }.
+    return data.message;
+  },
+  async getMessages(bookingId: string): Promise<ChatMessage[]> {
+    const res = await fetch(`${BASE_URL}/api/bookings/${bookingId}/messages`, {
+      method: 'GET',
+      headers: getHeaders(),
+    });
+    if (!res.ok) throw new Error(`Failed to load messages: ${res.statusText}`);
+    const data = await res.json();
+    return data.messages || data;
   },
 
   // --- Marketplace & Hazards ---
