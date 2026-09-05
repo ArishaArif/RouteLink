@@ -13,7 +13,6 @@ import { ProfileScreen } from '../screens/ProfileScreen';
 import { AlertsScreen } from '../screens/AlertsScreen';
 import { GuideDetailScreen } from '../screens/GuideDetailScreen';
 import { BookingsScreen } from '../screens/BookingsScreen';
-import { ChatScreen } from '../screens/ChatScreen';
 import { TripsScreen } from '../screens/TripsScreen';
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
@@ -108,17 +107,6 @@ export default function RootNavigator() {
         options={{
           headerShown: true,
           title: 'My Bookings',
-          headerStyle: { backgroundColor: theme.colors.surface },
-          headerTintColor: theme.colors.textPrimary,
-          headerTitleStyle: { color: theme.colors.textPrimary },
-        }}
-      />
-      <Stack.Screen
-        name="Chat"
-        component={ChatScreen}
-        options={{
-          headerShown: true,
-          title: 'Conversation',
           headerStyle: { backgroundColor: theme.colors.surface },
           headerTintColor: theme.colors.textPrimary,
           headerTitleStyle: { color: theme.colors.textPrimary },

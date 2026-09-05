@@ -4,7 +4,7 @@
 - Login → returns JWT token
 - Create Trip (correct field names + Bearer token) → creates real trip in DB
 - `npm run smoke` — 43 checks
-- `npm run smoke:day3` — guides, bookings, chat, hazard ingest
+- `npm run smoke:day3` — guides, bookings, hazard ingest
 - `npm run smoke:day4` — itinerary contract, marketplace hand-off, write auth
 - `npm run smoke:integration` — security headers, hazard aliases, guide-side bookings, SOS, rate limits
 
@@ -85,16 +85,16 @@ Tested Auth + Trip flow against real backend code (not dummy data).
 
 
 
-## MAJOR UPDATE — 2026-09-02: Backend built and tested Guide Marketplace, Bookings, Chat, Hazards, Itinerary
+## MAJOR UPDATE — 2026-09-02: Backend built and tested Guide Marketplace, Bookings, Hazards, Itinerary
 
 Backend delivered API_CONTRACT.md (source of truth per §13, supersedes hand-written Postman assumptions) plus:
-- controllers: bookingController, chatController, guideController, hazardController, itineraryController
+- controllers: bookingController, guideController, hazardController, itineraryController
 - routes: bookings.js, guides.js, hazards.js
 - migrations: db-migrate-day3.js (booking enum), db-migrate-day4.js (itinerary schema)
 - Two automated smoke test suites: smoke-day3.js, smoke-day4.js
 
 Ran both smoke tests locally against real DB:
-- smoke-day3.js (Guides, Bookings, Chat, Hazards): 67 passed, 0 failed
+- smoke-day3.js (Guides, Bookings, Hazards): 67 passed, 0 failed
 - smoke-day4.js (Itinerary write/read, snake_case↔camelCase, marketplace hand-off): 47 passed, 0 failed
 - Total: 114/114 passing, covering happy paths AND permission/validation/edge cases
 
@@ -114,7 +114,6 @@ Walked through the full rebuilt Postman collection live against the running serv
 - Trips: Create, Get by ID, List (paginated), Get Itinerary (placeholder shape matches §6 exactly), Write Itinerary (owner token) — confirmed needsMarketplaceData auto-flag, real marketplace guide data, replace semantics, camelCase-out
 - Guides: List (phone correctly hidden for non-owner), Get by ID
 - Bookings: Create (overlap conflict correctly rejected with 409 on first attempt, succeeded on non-conflicting dates), List, Update Status (correctly 403'd for traveler — confirms permission check works, not a bug)
-- Chat: Send message (senderId correctly taken from JWT not request body), Get messages (reads back correctly)
 - Hazards: Report (ingestKey working), Get active alerts by region
 
 Every response matched API_CONTRACT.md exactly. No discrepancies found between the contract, the smoke tests, and live manual testing. Backend's Day 3/4 build is confirmed solid across three independent verification methods (smoke tests, contract doc, manual QA).

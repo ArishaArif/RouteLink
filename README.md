@@ -14,7 +14,6 @@ An AI-powered travel planning and hazard-detection application built to tackle s
 │   │   ├── Itinerary.js            # One row per day of a Trip + heat/slot scheduling fields
 │   │   ├── Guide.js                # Guide profile (extends a User)
 │   │   ├── Booking.js              # Links Trip + Guide + User
-│   │   ├── ChatMessage.js          # Messages on a Booking thread
 │   │   ├── HazardAlert.js          # Region-based alerts fed by the NLP pipeline
 │   │   └── index.js                # Model loader + all associations
 │   ├── middleware/
@@ -28,7 +27,6 @@ An AI-powered travel planning and hazard-detection application built to tackle s
 │   │   ├── itineraryController.js  # itinerary read/write + marketplace hand-off
 │   │   ├── guideController.js      # guide marketplace
 │   │   ├── bookingController.js    # bookings + status transitions
-│   │   ├── chatController.js       # booking message threads
 │   │   └── hazardController.js     # NLP alert ingest + public feed
 │   ├── scripts/
 │   │   ├── db-sync.js              # npm run db:sync
@@ -77,8 +75,6 @@ Base URL: `http://localhost:5000`
 | `POST` | `/api/bookings` | Bearer | Request a guide for a trip |
 | `GET` | `/api/bookings` | Bearer | Bookings where you are traveler or guide |
 | `PATCH` | `/api/bookings/:id/status` | Bearer, guide/admin | Confirm / cancel / complete |
-| `POST` | `/api/bookings/:id/messages` | Bearer, participant | Send a message |
-| `GET` | `/api/bookings/:id/messages` | Bearer, participant | Read the thread |
 | `POST` | `/api/hazards` | `X-Ingest-Key` | NLP pipeline ingest (strict, deduped) |
 | `GET` | `/api/hazards` | none | Public alert feed (filter `region`) |
 
@@ -185,7 +181,7 @@ With the server running:
 ```bash
 npm test           # module + router resolution
 npm run smoke      # auth, trips, itinerary placeholder, ownership
-npm run smoke:day3 # guides, bookings, chat, hazard ingest
+npm run smoke:day3 # guides, bookings, hazard ingest
 npm run smoke:day4 # itinerary write contract, marketplace hand-off, write auth
 ```
 ## ⚠️ Not yet built 
@@ -203,7 +199,6 @@ As Mobile Lead, this repository module tracks all end-to-end user interfaces, na
 
 * **Trip Planning & Itinerary:** Weather-integrated day-by-day scheduler with spot exclusion controls ("Already Visited" / "Interested").
 * **Guide Marketplace:** Local guide directory filtering by region, language, and rating with booking request hooks.
-* **Booking Chat:** Real-time messaging UI between travelers and local guide contacts.
 * **Safety & Hazard Alerts:** Top-level alert banner rendering real-time NLP-detected hazards.
 * **Emergency SOS:** Dedicated geolocation panic interface with direct emergency hotlines (Rescue 1122, Tourist Police).
 
@@ -221,13 +216,12 @@ RouteLinkMobile/
 │   ├── screens/
 │   │   ├── TripPlannerScreen.tsx      # Destination/duration input & day-by-day scheduler
 │   │   ├── GuideMarketplaceScreen.tsx # Regional guide discovery & booking requests
-│   │   ├── BookingChatScreen.tsx      # Real-time traveler-to-guide message thread UI
 │   │   └── SOSScreen.tsx              # Emergency dispatch screen with GPS coordinates & hotlines
 │   ├── services/
 │   │   └── api.ts               # Unified Axios/Fetch API client & endpoint definitions
 │   └── types/
-│       └── index.ts             # TypeScript interfaces (Trips, Hazards, Guides, Chat)
-├── App.tsx                      # Root navigation tabs (Planner, Guides, Chat, SOS)
+│       └── index.ts             # TypeScript interfaces (Trips, Hazards, Guides)
+├── App.tsx                      # Root navigation tabs (Planner, Guides, SOS)
 ├── app.json                     # Expo app configuration & metadata
 ├── index.ts                     # Expo entry point (registerRootComponent)
 ├── package.json                 # Mobile dependencies & scripts
@@ -285,7 +279,6 @@ RouteLinkMobile/
 | Itinerary | `GET /api/trips/:id/itinerary` | Retrieve generated weather & activity schedule |
 | Marketplace | `GET /api/guides` | Fetch available local guides filtered by region |
 | Bookings | `POST /api/bookings` | Submit booking request to a guide |
-| Chat | `POST /api/bookings/:id/messages` | Send messages on a booking thread |
 | Hazards | `GET /api/hazards` | Retrieve active NLP-flagged regional hazards |
 
 > **SOS note:** `GET /api/sos/nearest` is not yet built on the backend (see `backend/SOS_DECISION.md`). Do not integrate the SOS screen against it yet.

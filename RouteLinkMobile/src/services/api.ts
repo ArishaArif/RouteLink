@@ -3,7 +3,6 @@ import {
   TripItinerary,
   Trip,
   Booking,
-  ChatMessage,
   Guide,
   HazardAlert,
   User,
@@ -161,20 +160,6 @@ export const api = {
       body: JSON.stringify(booking),
     });
     return normalizeBooking(data.booking);
-  },
-  async listMessages(bookingId: string): Promise<ChatMessage[]> {
-    const data = await request<{ messages: ChatMessage[] }>(`${BASE_URL}/api/bookings/${encodeURIComponent(bookingId)}/messages`);
-    return data.messages || [];
-  },
-  async sendMessage(bookingId: string, text: string): Promise<ChatMessage> {
-    const data = await request<{ message: ChatMessage }>(
-      `${BASE_URL}/api/bookings/${encodeURIComponent(bookingId)}/messages`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ text }),
-      }
-    );
-    return data.message;
   },
 
   async getRecommendations(destination: string): Promise<AttractionSpot[]> {

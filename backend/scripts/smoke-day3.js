@@ -275,46 +275,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     body: { status: 'completed' },
   }, (b) => ({ previousStatus: b.previousStatus, status: b.booking.status, changedBy: b.changedBy }));
 
-  section('3. CHAT MESSAGES');
-  await step('FAILURE send message with no token', 401, 'POST', `/api/bookings/${bookingId}/messages`, {
-    body: { text: 'hello' },
-  });
-  await step('traveler sends a message', 201, 'POST', `/api/bookings/${bookingId}/messages`, {
-    token: travelerToken,
-    body: { text: 'Salaam! Are you free on the 5th for the Baltit Fort walk?' },
-  }, (b) => ({ sentAs: b.sentAs, sender: b.message.sender, text: b.message.text }));
-
-  await sleep(60);
-
-  await step('guide replies', 201, 'POST', `/api/bookings/${bookingId}/messages`, {
-    token: guideToken,
-    body: { text: 'Walaikum salaam - yes, 5th works. I will meet you at Karimabad.' },
-  }, (b) => ({ sentAs: b.sentAs, sender: b.message.sender, text: b.message.text }));
-
-  const thread = await step('traveler reads thread in time order', 200, 'GET', `/api/bookings/${bookingId}/messages`,
-    { token: travelerToken },
-    (b) => ({ viewingAs: b.viewingAs, count: b.count, messages: b.messages.map((m) => `${m.sender.name}: ${m.text}`) }));
-  assert('thread is ordered oldest-first',
-    thread.body.count === 2 && new Date(thread.body.messages[0].createdAt) <= new Date(thread.body.messages[1].createdAt),
-    thread.body.messages.map((m) => ({ at: m.createdAt, by: m.sender.name })));
-
-  await step('guide reads same thread', 200, 'GET', `/api/bookings/${bookingId}/messages`, { token: guideToken },
-    (b) => ({ viewingAs: b.viewingAs, count: b.count }));
-
-  await step('FAILURE outsider cannot read the thread', 404, 'GET', `/api/bookings/${bookingId}/messages`, { token: outsiderToken });
-  await step('FAILURE outsider cannot post to the thread', 404, 'POST', `/api/bookings/${bookingId}/messages`, {
-    token: outsiderToken,
-    body: { text: 'let me in' },
-  });
-  await step('FAILURE admin is not a chat participant either', 404, 'GET', `/api/bookings/${bookingId}/messages`, { token: adminToken });
-  await step('FAILURE empty message text', 400, 'POST', `/api/bookings/${bookingId}/messages`, {
-    token: travelerToken,
-    body: { text: '   ' },
-  });
-  await step('FAILURE messages on unknown booking', 404, 'GET', '/api/bookings/11111111-2222-3333-4444-555555555555/messages',
-    { token: travelerToken });
-
-  section('4. HAZARD ALERTS');
+  section('3. HAZARD ALERTS');
   const landslideText = `Heavy landslide has blocked the Karakoram Highway near Aliabad, traffic halted both directions since morning. [${stamp}]`;
   const landslidePayload = {
     sourceType: 'twitter',

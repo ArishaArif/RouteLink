@@ -23,7 +23,6 @@ export type RootStackParamList = {
   MainTabs: { screen: keyof RootTabParamList; params?: any } | undefined;
   GuideDetail: { guideId: string };
   Bookings: undefined;
-  Chat: { bookingId: string; title?: string };
   Trips: undefined;
 };
 
@@ -131,18 +130,6 @@ export interface Booking {
   viewerRole?: 'traveler' | 'guide';
   trip?: Trip;
   guide?: Guide;
-}
-
-export interface ChatMessage {
-  id: string;
-  bookingId: string;
-  senderId: string;
-  text: string;
-  sender: {
-    id: string;
-    name: string;
-  };
-  createdAt: string;
 }
 
 export interface DestinationStateRow {

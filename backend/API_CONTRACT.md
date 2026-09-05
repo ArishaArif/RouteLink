@@ -8,7 +8,7 @@ rebuild recorded in `QA_FINDINGS.md` happened because two sides assumed
 different field names.
 
 **Start here if you are wiring up a client:** §10 (all ids are UUIDs), §11 (the
-complete endpoint list), §12 (booking / chat / guide bodies). Those three cover
+complete endpoint list), §12 (booking / guide bodies). Those three cover
 the mistakes that have actually been made against this API. §13 explains why the
 shared Postman collection is not a substitute for this file.
 
@@ -42,7 +42,7 @@ side has to change.
 
 **The dual-case acceptance stops at that one endpoint.** `PUT
 /api/trips/:id/itinerary` is the only route that reads both cases. Everywhere
-else — trips, bookings, chat, guides, hazard ingest — the request body is
+else — trips, bookings, guides, hazard ingest — the request body is
 **camelCase only**, and most of those routes reject unrecognised keys with a
 `400` rather than ignoring them. Sending `guide_id` or `duration_days` to those
 routes is an error, not a tolerated alias. Do not generalise §1 beyond the
@@ -293,7 +293,7 @@ they are listed here so Mobile can correct them.
 | `Guide.phone` | `string` (required) | omitted unless you are the listing owner or an admin — must be optional |
 | `Guide` | — | also returns `userId`, `languages`, `bio`, `isAvailable`, `createdAt`, `updatedAt`, `user` |
 
-Mobile also has **no type at all** for `Trip`, `Booking` or `ChatMessage`, and no auth/user type. Those
+Mobile also has **no type at all** for `Trip` or `Booking`, and no auth/user type. Those
 three endpoints are built and tested; the types simply do not exist yet.
 
 ### `AttractionSpot` — checked 2026-09-04 against §19
@@ -400,8 +400,6 @@ JWT read if present but never required (affects which fields come back).
 | `POST` | `/api/bookings` | JWT | §12 |
 | `GET` | `/api/bookings` | JWT | bookings where caller is traveler or guide |
 | `PATCH` | `/api/bookings/:id/status` | JWT | guide or admin only — a traveler gets `403`. §12 |
-| `POST` | `/api/bookings/:id/messages` | JWT | participants only. §12 |
-| `GET` | `/api/bookings/:id/messages` | JWT | participants only; paginated |
 | `POST` | `/api/hazards` | key | §7. Strict — rejects unknown fields. Rate limited. Accepts AI/ML labels via §15 aliases |
 | `GET` | `/api/hazards` | none | optional `?region=`; active alerts, severity-ranked |
 | `POST` | `/api/sos` | JWT | §14. Panic trigger + nearest-service lookup. **Mocked provider** |
@@ -415,7 +413,7 @@ that a booking exists to someone who has no part in it.
 
 ---
 
-## 12. Bookings, chat and guide bodies
+## 12. Bookings and guide bodies
 
 These were built on Day 3 and documented only in passing. Written out here
 because they are the shapes clients get wrong most often.
@@ -454,17 +452,6 @@ There is still **no transition guard**: `cancelled` → `confirmed` is currently
 accepted. That is an open business-rule question in `QA_FINDINGS.md`, not a
 guarantee — do not build a client that depends on the current permissiveness.
 
-### `POST /api/bookings/:id/messages`
-
-```json
-{ "text": "Looking forward to the trip" }
-```
-
-`text` is the only accepted field, max 4000 characters. **Do not send a sender
-id.** The sender is taken from the JWT — a client claiming its own identity in
-the body would be a way to post as someone else, so the field does not exist.
-Responses carry `senderId` and a nested `sender: { id, name }`.
-
 ### `PATCH /api/trips/:id`
 
 Updatable: `title`, `destination`, `startDate`, `endDate`, `status`, `budget`.
@@ -498,7 +485,6 @@ this API has never had:
 | --- | --- | --- |
 | `GET/PATCH/DELETE /api/trips/1`, `GET /api/trips/1/itinerary` | `400` | integer id against a UUID key — §10 |
 | `GET /api/guides/1` | `400` | same |
-| `POST /api/bookings/1/messages` | `400` | same, plus `sender_id`/`message` instead of `text` — §12 |
 | `POST /api/bookings` | `400` | `guide_id`, `trip_id`, single `date` — should be `tripId`, `guideId`, `startDate`, `endDate` |
 | `PATCH /api/trips/1` | `400` | sends `duration_days`, which does not exist |
 | `POST /api/hazards` | `401` | no `X-Ingest-Key`; body also uses nested `location` and `type: "landslide"` instead of flat `latitude`/`longitude` and a `hazardType` from the enum |
@@ -513,7 +499,7 @@ variable, which is how hardcoded `1`s got baked in.
 
 Seven built endpoints have **no request at all**: `PUT /api/trips/:id/itinerary`,
 `POST /api/guides`, `PATCH /api/guides/:id`, `GET /api/bookings`, `PATCH
-/api/bookings/:id/status`, `GET /api/bookings/:id/messages`, `GET /health`.
+/api/bookings/:id/status`, `GET /health`.
 
 **Until the collection is regenerated against §11, treat this file as the only
 source of truth.** A red request in that collection is not evidence of a backend
@@ -896,3 +882,7 @@ that speaks HTTP to AI/ML, and `services/recommendationService.js` decides
 between real and fallback. The other ML endpoints they expose
 (`/api/recommend/preferences`, `/api/schedule/intraday`, `/api/predict/hazard`)
 are **not** wired to anything yet.
+
+
+
+

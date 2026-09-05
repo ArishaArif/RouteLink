@@ -128,11 +128,6 @@ export const GuideDetailScreen = ({ route }: Props) => {
     }
   };
 
-  const openChat = () => {
-    if (!bookingResult) return;
-    navigation.navigate('Chat', { bookingId: bookingResult.id, title: guide?.name })
-  };
-
   const onRefresh = async () => {
     setRefreshing(true);
     await load(false);
@@ -296,7 +291,6 @@ export const GuideDetailScreen = ({ route }: Props) => {
                   </Text>
                 </View>
               </View>
-              <Button title="Open conversation" icon="chatbubble-outline" style={{ marginTop: 12 }} onPress={openChat} />
             </Card>
           ) : (
             <Card elevated={false}>

@@ -1,7 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { ScrollView, View, Text, StyleSheet, RefreshControl, TouchableOpacity } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { ScrollView, View, Text, StyleSheet, RefreshControl } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { Card } from '../components/Card';
@@ -10,15 +8,13 @@ import { Avatar } from '../components/Avatar';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonCard } from '../components/Skeleton';
 import { api } from '../services/api';
-import { Booking, RootStackParamList } from '../types';
+import { Booking } from '../types';
 import { formatPrice, formatDateRange } from '../utils/display';
 
-type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Bookings'>;
 
 export const BookingsScreen = () => {
   const { theme } = useTheme();
   const { isLoading: authLoading } = useAuth();
-  const navigation = useNavigation<NavigationProp>();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -76,7 +72,7 @@ export const BookingsScreen = () => {
                 {status.charAt(0).toUpperCase() + status.slice(1)}
               </Text>
               {grouped[status].map((booking) => (
-                <BookingCard key={booking.id} booking={booking} onPress={() => navigation.navigate('Chat', { bookingId: booking.id, title: booking.guide?.name })} />
+                <BookingCard key={booking.id} booking={booking} />
               ))}
             </View>
           ))
@@ -86,13 +82,12 @@ export const BookingsScreen = () => {
   );
 };
 
-const BookingCard = ({ booking, onPress }: { booking: Booking; onPress: () => void }) => {
+const BookingCard = ({ booking }: { booking: Booking }) => {
   const { theme } = useTheme();
   const guideName = booking.guide?.name ?? 'Guide';
   const trip = booking.trip;
   return (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
-      <Card style={styles.card}>
+    <Card style={styles.card}>
         <View style={styles.row}>
           <Avatar name={guideName} size={44} />
           <View style={styles.body}>
@@ -113,8 +108,7 @@ const BookingCard = ({ booking, onPress }: { booking: Booking; onPress: () => vo
             </Text>
           )}
         </View>
-      </Card>
-    </TouchableOpacity>
+    </Card>
   );
 };
 
