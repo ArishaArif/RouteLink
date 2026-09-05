@@ -1,6 +1,5 @@
-// --- Auth & User ---
 export interface User {
-  id: string; // UUID v4
+  id: string;
   name: string;
   email: string;
   role?: 'traveler' | 'guide' | 'admin';
@@ -11,24 +10,44 @@ export interface AuthResponse {
   token: string;
 }
 
-// --- Vocabularies ---
-export type HeatTier = 'cool' | 'mild' | 'warm' | 'hot' | 'extreme';
-export type SlotType = 'outdoor_active' | 'outdoor_light' | 'indoor_rest' | 'travel' | 'mixed';
-export type HazardType = 'weather' | 'health' | 'safety' | 'political' | 'natural_disaster' | 'other';
-export type HazardSeverity = 'low' | 'medium' | 'high' | 'critical';
+export type RootTabParamList = {
+  Explore: undefined;
+  Routes: undefined;
+  Guides: undefined;
+  Alerts: undefined;
+  SOS: undefined;
+  Profile: undefined;
+};
 
-// --- Marketplace & Guide ---
+export type RootStackParamList = {
+  MainTabs: { screen: keyof RootTabParamList; params?: any } | undefined;
+  GuideDetail: { guideId: string };
+  Bookings: undefined;
+  Chat: { bookingId: string; title?: string };
+  Trips: undefined;
+};
+
+export type HeatTier = 'cool' | 'mild' | 'warm' | 'hot' | 'extreme';
+
+export type SlotType = 'outdoor_active' | 'outdoor_light' | 'indoor_rest' | 'travel' | 'mixed';
+
+export type HazardType = 'weather' | 'health' | 'safety' | 'political' | 'natural_disaster' | 'other';
+
+export type HazardSeverity = 'low' | 'medium' | 'high';
+
+export type BookingStatus = 'requested' | 'confirmed' | 'cancelled' | 'completed';
+
 export interface Guide {
-  id: string; // UUID v4
+  id: string;
   userId?: string;
   name: string;
   region: string;
   bio?: string;
   languages?: string[];
-  pricePerDay: number; // Coerced JSON number
-  rating: number; // Coerced JSON number
+  pricePerDay: number;
+  rating: number;
   isAvailable?: boolean;
-  phone?: string; // Omitted unless owner/admin
+  phone?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -36,11 +55,10 @@ export interface Guide {
 export interface DayMarketplace {
   region: string;
   guides: Guide[];
-  lodging: any[]; // Always [] for now
-  dining: any[];  // Always [] for now
+  lodging: any[];
+  dining: any[];
 }
 
-// --- Itinerary & Activity ---
 export interface Activity {
   time: string;
   title: string;
@@ -51,10 +69,10 @@ export interface Activity {
 }
 
 export interface TripDay {
-  id?: string | null; // UUID v4, null on placeholder
+  id?: string | null;
   tripId?: string;
   dayNumber: number;
-  date: string; // YYYY-MM-DD
+  date: string;
   slotType?: SlotType | null;
   heatTier?: HeatTier | null;
   needsMarketplaceData?: boolean;
@@ -68,14 +86,13 @@ export interface TripDay {
 
 export interface TripItinerary {
   tripId: string;
-  days: number; // Number of days count (renamed from durationDays to match backend)
-  itinerary: TripDay[]; // Array of day objects (was previously named 'days')
+  days: number;
+  itinerary: TripDay[];
   source: 'stored' | 'placeholder';
   modelVersion?: string;
   generatedAt?: string;
 }
 
-// --- Hazards ---
 export interface HazardAlert {
   id: string;
   sourceType: string;
@@ -91,25 +108,29 @@ export interface HazardAlert {
   createdAt: string;
 }
 
-// --- Trips & Bookings ---
 export interface Trip {
-  id: string; // UUID v4
+  id: string;
+  userId?: string;
   title: string;
   destination: string;
-  startDate: string; // YYYY-MM-DD
-  endDate: string;   // YYYY-MM-DD
+  startDate: string;
+  endDate: string;
   budget?: number;
   status?: string;
+  createdAt?: string;
 }
 
 export interface Booking {
-  id: string; // UUID v4
+  id: string;
   tripId: string;
   guideId: string;
   startDate: string;
   endDate: string;
   totalPrice: number;
-  status: 'requested' | 'pending' | 'confirmed' | 'cancelled' | 'completed';
+  status: BookingStatus;
+  viewerRole?: 'traveler' | 'guide';
+  trip?: Trip;
+  guide?: Guide;
 }
 
 export interface ChatMessage {
@@ -124,22 +145,27 @@ export interface ChatMessage {
   createdAt: string;
 }
 
-export interface IntradayForecast {
-  time: string; // e.g., "12:00 PM"
-  temperatureC: number;
-  condition: string;
-  slotType: 'outdoor_ok' | 'limited_outdoor' | 'indoor_rest';
-  recommendationSummary: string; // Short summary
-  inDepthAnalysis: string;       // Detailed weather-based breakdown
+export interface DestinationStateRow {
+  destinationName: string;
+  status: 'visited' | 'dismissed';
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface DestinationState {
+  userId?: string;
+  count?: number;
+  excludeList: string[];
+  destinationState: DestinationStateRow[];
 }
 
 export interface AttractionSpot {
-  id: string; // UUID v4
+  id: string;
   name: string;
   description: string;
   location: string;
-  latitude: number;
-  longitude: number;
-  imageUrl?: string | null;      // Supplied by Backend/Maps team
-  forecasts?: IntradayForecast[]; // 3-hour intraday breakdown
+  latitude?: number | null;
+  longitude?: number | null;
+  imageUrl?: string | null;
+  heatTier?: HeatTier;
 }

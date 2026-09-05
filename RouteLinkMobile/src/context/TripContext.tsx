@@ -1,11 +1,9 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import { TripItinerary, Trip } from '../types';
 import { api } from '../services/api';
 
-// Known Northern Pakistan destinations -> coordinates. Same pattern as
-// weather_scheduler.py's CITY_COORDS, kept in sync manually for now since
-// there's no shared config between the Python and TypeScript sides yet.
 const DESTINATION_COORDS: Record<string, { lat: number; lng: number }> = {
+  'Hunza': { lat: 36.3167, lng: 74.6500 },
   'Hunza Valley': { lat: 36.3167, lng: 74.6500 },
   'Skardu': { lat: 35.2971, lng: 75.6333 },
   'Gilgit': { lat: 35.9221, lng: 74.3087 },
@@ -18,21 +16,25 @@ interface TripContextType {
   destination: string;
   duration: string;
   trip: Trip | null;
+  trips: Trip[];
   itinerary: TripItinerary | null;
   coords: { lat: number; lng: number } | null;
   isLoading: boolean;
   error: string | null;
   setDestination: (val: string) => void;
   setDuration: (val: string) => void;
+  loadTrips: () => Promise<void>;
+  selectTrip: (trip: Trip) => Promise<void>;
   generateItinerary: () => Promise<void>;
 }
 
 const TripContext = createContext<TripContextType | undefined>(undefined);
 
 export const TripProvider = ({ children }: { children: ReactNode }) => {
-  const [destination, setDestination] = useState('');
-  const [duration, setDuration] = useState('');
+  const [destination, setDestination] = useState('Hunza');
+  const [duration, setDuration] = useState('3');
   const [trip, setTrip] = useState<Trip | null>(null);
+  const [trips, setTrips] = useState<Trip[]>([]);
   const [itinerary, setItinerary] = useState<TripItinerary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +43,48 @@ export const TripProvider = ({ children }: { children: ReactNode }) => {
     ? DESTINATION_COORDS[destination]
     : null;
 
-  const generateItinerary = async () => {
+  const loadItineraryForTrip = useCallback(async (selectedTrip: Trip) => {
+    try {
+      const data = await api.getItinerary(selectedTrip.id);
+      setItinerary(data);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load itinerary');
+      setItinerary(null);
+    }
+  }, []);
+
+  const loadTrips = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await api.listTrips();
+      setTrips(data);
+      if (data.length > 0 && !trip) {
+        const newest = data[data.length - 1];
+        setTrip(newest);
+        setDestination(newest.destination);
+        await loadItineraryForTrip(newest);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to load trips');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [trip, loadItineraryForTrip]);
+
+  useEffect(() => {
+    loadTrips();
+  }, []);
+
+  const selectTrip = useCallback(async (selectedTrip: Trip) => {
+    setTrip(selectedTrip);
+    setDestination(selectedTrip.destination);
+    setIsLoading(true);
+    await loadItineraryForTrip(selectedTrip);
+    setIsLoading(false);
+  }, [loadItineraryForTrip]);
+
+  const generateItinerary = useCallback(async () => {
     if (!destination.trim() || !duration.trim()) return;
 
     setIsLoading(true);
@@ -51,11 +94,10 @@ export const TripProvider = ({ children }: { children: ReactNode }) => {
       const daysCount = parseInt(duration, 10) || 1;
       const startDate = new Date();
       const endDate = new Date();
-      endDate.setDate(startDate.getDate() + daysCount);
+      endDate.setDate(startDate.getDate() + daysCount - 1);
 
       const formatDate = (d: Date) => d.toISOString().split('T')[0];
 
-      // Create the real trip on the backend instead of faking a local object
       const createdTrip = await api.createTrip({
         title: `${destination} Trip`,
         destination,
@@ -63,11 +105,8 @@ export const TripProvider = ({ children }: { children: ReactNode }) => {
         endDate: formatDate(endDate),
       });
       setTrip(createdTrip);
+      setTrips((prev) => [...prev, createdTrip]);
 
-      // Read back whatever the backend has for this trip's itinerary --
-      // will be a placeholder until AI/ML's real service is wired in (see
-      // API_CONTRACT.md §17), but it's REAL placeholder data from the
-      // server, not invented client-side.
       const realItinerary = await api.getItinerary(createdTrip.id);
       setItinerary(realItinerary);
     } catch (err: any) {
@@ -75,7 +114,7 @@ export const TripProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [destination, duration]);
 
   return (
     <TripContext.Provider
@@ -83,12 +122,15 @@ export const TripProvider = ({ children }: { children: ReactNode }) => {
         destination,
         duration,
         trip,
+        trips,
         itinerary,
         coords,
         isLoading,
         error,
         setDestination,
         setDuration,
+        loadTrips,
+        selectTrip,
         generateItinerary,
       }}
     >
