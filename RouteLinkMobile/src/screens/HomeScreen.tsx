@@ -30,22 +30,26 @@ import { spacing, radius, typography, iconSize } from '../constants/theme';
 const { width } = Dimensions.get('window');
 
 const DESTINATIONS = [
-  { name: 'Hunza', image: 'https://images.unsplash.com/photo-1542259659-4e0c4038b04b?auto=format&w=800&q=80' },
-  { name: 'Hunza Valley', image: 'https://images.unsplash.com/photo-1542259659-4e0c4038b04b?auto=format&w=800&q=80' },
-  { name: 'Skardu', image: 'https://images.unsplash.com/photo-1565035010268-a3816f98589a?auto=format&w=800&q=80' },
-  { name: 'Deosai', image: 'https://images.unsplash.com/photo-1534068590799-09895a701e3e?auto=format&w=800&q=80' },
-  { name: 'Attabad Lake', image: 'https://images.unsplash.com/photo-1562696271-0580045c26b3?auto=format&w=800&q=80' },
-  { name: 'Gilgit', image: 'https://images.unsplash.com/photo-1596895111956-bf1cf0599ce5?auto=format&w=800&q=80' },
-  { name: 'Naran', image: 'https://images.unsplash.com/photo-1626010448982-5d629e925539?auto=format&w=800&q=80' },
+  { name: 'Hunza', image: 'https://upload.wikimedia.org/wikipedia/commons/d/dc/Hunza_Valley_HDR.jpg' },
+  { name: 'Hunza Valley', image: 'https://upload.wikimedia.org/wikipedia/commons/d/dc/Hunza_Valley_HDR.jpg' },
+  { name: 'Skardu', image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9f/Shangrila_resort_skardu.jpg/3840px-Shangrila_resort_skardu.jpg' },
+  { name: 'Deosai', image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/Deosai_pic_hd.jpg/3840px-Deosai_pic_hd.jpg' },
+  { name: 'Attabad Lake', image: 'https://upload.wikimedia.org/wikipedia/commons/5/52/Attabad.jpg' },
 ];
 
-const HERO_IMAGE = 'https://images.unsplash.com/photo-1518182170546-0766bc6f9213?auto=format&w=800&q=80';
+const HERO_IMAGE = 'https://upload.wikimedia.org/wikipedia/commons/d/dc/Hunza_Valley_HDR.jpg';
 const HERO_HEIGHT = 240;
 const EXPLORE_CARD_WIDTH = width * 0.62;
 
 function imageForSpot(spot: AttractionSpot): string | null {
+  if (spot.imageUrl) return spot.imageUrl;
   const match = DESTINATIONS.find((d) => d.name.toLowerCase() === spot.name.toLowerCase());
-  return match?.image ?? spot.imageUrl ?? null;
+  return match?.image ?? null;
+}
+
+function heroImageForDestination(name: string): string {
+  const match = DESTINATIONS.find((d) => d.name.toLowerCase() === name.toLowerCase());
+  return match?.image ?? HERO_IMAGE;
 }
 
 function findWeatherNumber(ctx: Record<string, any> | null | undefined): number | null {
@@ -196,7 +200,7 @@ export const HomeScreen = () => {
         <View style={styles.heroSection}>
           <View style={styles.heroWrap}>
             <AnimatedImageBackground
-              source={{ uri: HERO_IMAGE }}
+              source={{ uri: heroImageForDestination(activeDestination) }} 
               style={[styles.hero, { transform: [{ translateY: heroTranslate }, { scale: heroScale }] }]}
               imageStyle={styles.heroImage}
             >

@@ -99,7 +99,12 @@ def recommend_similar(df: pd.DataFrame, similarity_matrix, name: str, top_n: int
     result_indices = [i for i, score in results]
     result_scores = [round(score, 3) for i, score in results]
 
-    result = df.iloc[result_indices][["name", "category", "province"]].copy()
+    # Include lat/long/photo_url so Backend doesn't have to re-fetch them --
+    # this used to select only ["name", "category", "province"], silently
+    # dropping every other column (coordinates included) before it ever
+    # reached the API response.
+    _cols = [c for c in ["name", "category", "province", "latitude", "longitude", "photo_url"] if c in df.columns]
+    result = df.iloc[result_indices][_cols].copy()
     result["similarity_score"] = result_scores
     return result
 
@@ -123,7 +128,8 @@ def recommend_by_preferences(df: pd.DataFrame, preferred_categories: list, top_n
 
     scores = cosine_similarity(query_vector, tfidf_matrix)[0]
 
-    result = df[["name", "category", "province"]].copy()
+    _cols = [c for c in ["name", "category", "province", "latitude", "longitude", "photo_url"] if c in df.columns]
+    result = df[_cols].copy()
     result["match_score"] = [round(s, 3) for s in scores]
 
     if exclude:
