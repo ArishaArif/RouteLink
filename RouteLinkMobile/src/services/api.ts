@@ -227,4 +227,11 @@ export const api = {
       })),
     };
   },
+
+  async sendChatbotMessage(message: string, sessionId: string): Promise<{ reply: string; sessionId: string }> {
+    return request<{ reply: string; sessionId: string }>(`${BASE_URL}/api/chatbot/message`, {
+      method: 'POST',
+      body: JSON.stringify({ message, sessionId }),
+    });
+  },
 };

@@ -1,4 +1,5 @@
 import React from 'react';
+import { View } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,6 +15,7 @@ import { AlertsScreen } from '../screens/AlertsScreen';
 import { GuideDetailScreen } from '../screens/GuideDetailScreen';
 import { BookingsScreen } from '../screens/BookingsScreen';
 import { TripsScreen } from '../screens/TripsScreen';
+import { ChatbotOverlay } from '../components/ChatbotOverlay';
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -78,51 +80,54 @@ function MainTabNavigator() {
   );
 }
 
-export default function RootNavigator() {
+export default function RootNavigator({ currentRoute }: { currentRoute: string }) {
   const { theme } = useTheme();
 
   return (
-    <Stack.Navigator
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: theme.colors.background },
-      }}
-    >
-      <Stack.Screen name="MainTabs" component={MainTabNavigator} />
-      <Stack.Screen
-        name="GuideDetail"
-        component={GuideDetailScreen}
-        options={{
-          headerShown: true,
-          presentation: 'card',
-          title: 'Guide',
-          headerStyle: { backgroundColor: theme.colors.surface },
-          headerTintColor: theme.colors.textPrimary,
-          headerTitleStyle: { color: theme.colors.textPrimary },
+    <View style={{ flex: 1 }}>
+      <Stack.Navigator
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: theme.colors.background },
         }}
-      />
-      <Stack.Screen
-        name="Bookings"
-        component={BookingsScreen}
-        options={{
-          headerShown: true,
-          title: 'My Bookings',
-          headerStyle: { backgroundColor: theme.colors.surface },
-          headerTintColor: theme.colors.textPrimary,
-          headerTitleStyle: { color: theme.colors.textPrimary },
-        }}
-      />
-      <Stack.Screen
-        name="Trips"
-        component={TripsScreen}
-        options={{
-          headerShown: true,
-          title: 'My Trips',
-          headerStyle: { backgroundColor: theme.colors.surface },
-          headerTintColor: theme.colors.textPrimary,
-          headerTitleStyle: { color: theme.colors.textPrimary },
-        }}
-      />
-    </Stack.Navigator>
+      >
+        <Stack.Screen name="MainTabs" component={MainTabNavigator} />
+        <Stack.Screen
+          name="GuideDetail"
+          component={GuideDetailScreen}
+          options={{
+            headerShown: true,
+            presentation: 'card',
+            title: 'Guide',
+            headerStyle: { backgroundColor: theme.colors.surface },
+            headerTintColor: theme.colors.textPrimary,
+            headerTitleStyle: { color: theme.colors.textPrimary },
+          }}
+        />
+        <Stack.Screen
+          name="Bookings"
+          component={BookingsScreen}
+          options={{
+            headerShown: true,
+            title: 'My Bookings',
+            headerStyle: { backgroundColor: theme.colors.surface },
+            headerTintColor: theme.colors.textPrimary,
+            headerTitleStyle: { color: theme.colors.textPrimary },
+          }}
+        />
+        <Stack.Screen
+          name="Trips"
+          component={TripsScreen}
+          options={{
+            headerShown: true,
+            title: 'My Trips',
+            headerStyle: { backgroundColor: theme.colors.surface },
+            headerTintColor: theme.colors.textPrimary,
+            headerTitleStyle: { color: theme.colors.textPrimary },
+          }}
+        />
+      </Stack.Navigator>
+      <ChatbotOverlay currentRoute={currentRoute} />
+    </View>
   );
 }

@@ -156,3 +156,11 @@ export interface AttractionSpot {
   imageUrl?: string | null;
   heatTier?: HeatTier;
 }
+
+export interface ChatbotMessage {
+  id: string;
+  role: 'user' | 'bot';
+  text: string;
+  timestamp: number;
+  error?: boolean;
+}

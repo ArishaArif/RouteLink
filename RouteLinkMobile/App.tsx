@@ -1,12 +1,19 @@
-import React from 'react';
+import React, { useRef, useState, useCallback } from 'react';
 import { StatusBar, View, ActivityIndicator, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, NavigationContainerRef } from '@react-navigation/native';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { TripProvider } from './src/context/TripContext';
 import RootNavigator from './src/navigation/RootNavigator';
 import { AuthScreen } from './src/screens/AuthScreen';
+
+function getActiveRouteName(state: any): string {
+  if (!state?.routes) return '';
+  const route = state.routes[state.index ?? 0];
+  if (route.state) return getActiveRouteName(route.state);
+  return route.name;
+}
 
 function ThemedStatusBar() {
   const { isDark } = useTheme();
@@ -16,6 +23,13 @@ function ThemedStatusBar() {
 function AppRoot() {
   const { user, isLoading } = useAuth();
   const { theme } = useTheme();
+  const navigationRef = useRef<NavigationContainerRef<any>>(null);
+  const [currentRoute, setCurrentRoute] = useState('Explore');
+
+  const onStateChange = useCallback(() => {
+    const state = navigationRef.current?.getRootState?.();
+    if (state) setCurrentRoute(getActiveRouteName(state));
+  }, []);
 
   if (isLoading) {
     return (
@@ -26,9 +40,9 @@ function AppRoot() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef} onStateChange={onStateChange}>
       <ThemedStatusBar />
-      {user ? <RootNavigator /> : <AuthScreen />}
+      {user ? <RootNavigator currentRoute={currentRoute} /> : <AuthScreen />}
     </NavigationContainer>
   );
 }

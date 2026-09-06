@@ -50,6 +50,7 @@ app.use('/api/bookings', require('./routes/bookings'));
 app.use('/api/hazards', require('./routes/hazards'));
 app.use('/api/sos', require('./routes/sos'));
 app.use('/api/recommendations', require('./routes/recommendations'));
+app.use('/api/chatbot', require('./routes/chatbot'));
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found', method: req.method, path: req.originalUrl });
