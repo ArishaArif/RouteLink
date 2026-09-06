@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const path = require('path');
 const { sequelize } = require('./models');
 
 const app = express();
@@ -41,6 +42,24 @@ app.get('/health', async (req, res) => {
     res.status(503).json({ status: 'error', db: 'unreachable', message: err.message });
   }
 });
+
+// Serves the destination photos the ML pipeline downloaded locally (one-time
+// download from Wikipedia, kept on disk on purpose to avoid re-hitting
+// Wikipedia's API -- see ml-pipeline/scripts/wikimedia_photo_lookup.py).
+// Mounted here, not on the ML microservice, so the phone app only ever needs
+// to know Backend's address -- not a second host for images.
+// Helmet's default Cross-Origin-Resource-Policy: same-origin would otherwise
+// block the mobile app / Expo web from loading these images cross-origin.
+const ML_IMAGES_DIR = process.env.ML_IMAGES_DIR
+  || path.join(__dirname, '../ml-pipeline/data/processed/destination_images');
+app.use(
+  '/destination-images',
+  (req, res, next) => {
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+    next();
+  },
+  express.static(ML_IMAGES_DIR)
+);
 
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/users', require('./routes/users'));
