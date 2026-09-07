@@ -1,5 +1,5 @@
-import React, { useRef, useEffect } from 'react';
-import { View, Text, TouchableOpacity, Animated, StyleSheet } from 'react-native';
+import React, { useRef, useEffect, useState } from 'react';
+import { View, Text, TouchableOpacity, Animated, StyleSheet, LayoutChangeEvent } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { spacing, radius, typography } from '../constants/theme';
 
@@ -12,36 +12,44 @@ interface SegmentedControlProps<T extends string> {
 export function SegmentedControl<T extends string>({ options, value, onChange }: SegmentedControlProps<T>) {
   const { theme } = useTheme();
   const indicator = useRef(new Animated.Value(0)).current;
+  const [segmentWidth, setSegmentWidth] = useState(0);
 
   const activeIndex = options.findIndex((o) => o.value === value);
   const safeIndex = activeIndex >= 0 ? activeIndex : 0;
 
   useEffect(() => {
     Animated.spring(indicator, {
-      toValue: safeIndex,
+      toValue: safeIndex * segmentWidth,
       friction: 8,
       tension: 300,
-      useNativeDriver: false,
+      useNativeDriver: true,
     }).start();
-  }, [safeIndex]);
+  }, [safeIndex, segmentWidth]);
 
-  const translateX = indicator.interpolate({
-    inputRange: options.map((_, i) => i),
-    outputRange: options.map((_, i) => i * (100 / options.length) + '%'),
-  });
+  const onLayout = (e: LayoutChangeEvent) => {
+    const totalWidth = e.nativeEvent.layout.width;
+    const padding = spacing.space1 * 2;
+    const innerWidth = totalWidth - padding;
+    setSegmentWidth(innerWidth / options.length);
+  };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.surfaceSecondary }]}>
-      <Animated.View
-        style={[
-          styles.indicator,
-          {
-            width: `${100 / options.length}%`,
-            backgroundColor: theme.colors.primary,
-            transform: [{ translateX }],
-          },
-        ]}
-      />
+    <View
+      style={[styles.container, { backgroundColor: theme.colors.surfaceSecondary }]}
+      onLayout={onLayout}
+    >
+      {segmentWidth > 0 && (
+        <Animated.View
+          style={[
+            styles.indicator,
+            {
+              width: segmentWidth,
+              backgroundColor: theme.colors.primary,
+              transform: [{ translateX: indicator }],
+            },
+          ]}
+        />
+      )}
       {options.map((option) => (
         <TouchableOpacity
           key={option.value}
@@ -72,6 +80,7 @@ const styles = StyleSheet.create({
   },
   indicator: {
     position: 'absolute',
+    left: spacing.space1,
     top: spacing.space1,
     bottom: spacing.space1,
     borderRadius: radius.full,

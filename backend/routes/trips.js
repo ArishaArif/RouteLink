@@ -7,7 +7,7 @@ const {
   updateTrip,
   deleteTrip,
 } = require('../controllers/tripController');
-const { getItinerary, putItinerary } = require('../controllers/itineraryController');
+const { getItinerary, putItinerary, generateItinerary } = require('../controllers/itineraryController');
 
 const router = express.Router();
 
@@ -21,5 +21,6 @@ router.get('/:id', getTrip);
 router.patch('/:id', updateTrip);
 router.delete('/:id', deleteTrip);
 router.get('/:id/itinerary', getItinerary);
+router.post('/:id/itinerary/generate', generateItinerary);
 
 module.exports = router;

@@ -9,8 +9,11 @@ Run: uvicorn app:app --reload
 """
 
 from fastapi import FastAPI, Query, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from typing import List, Optional
 from pydantic import BaseModel
+from pathlib import Path
 import os
 import pandas as pd
 
@@ -33,6 +36,8 @@ from scripts.hazard_classifier import predict_hazard
 app = FastAPI(title="RouteLink ML Microservice", version="1.0.0")
 
 DESTINATIONS_PATH = "data/processed/destinations_clean.csv"
+PHOTOS_CSV_PATH = "data/processed/destination_photos.csv"
+IMAGE_DIR = Path("data/processed/destination_images")
 
 # --- Load once at startup, not per-request -------------------------------
 # The original code called `pd.read_csv(...)` inside every single endpoint,
@@ -45,6 +50,23 @@ DESTINATIONS_PATH = "data/processed/destinations_clean.csv"
 _destinations_df = pd.read_csv(DESTINATIONS_PATH)
 _content_profiles = build_content_profile(_destinations_df)
 _similarity_matrix, _ = build_similarity_matrix(_content_profiles)
+
+# --- Photo lookup (optional — populated by wikimedia_photo_lookup.py) -----
+_photos_df = None
+if Path(PHOTOS_CSV_PATH).exists():
+    try:
+        _photos_df = pd.read_csv(PHOTOS_CSV_PATH)
+        # Build a lowercase name → row lookup for O(1) access
+        _photos_index = {
+            str(row["name"]).strip().lower(): row.to_dict()
+            for _, row in _photos_df.iterrows()
+            if pd.notna(row.get("name"))
+        }
+    except Exception:
+        _photos_df = None
+        _photos_index = {}
+else:
+    _photos_index = {}
 
 
 # Request Schemas
@@ -173,3 +195,45 @@ def predict_hazard_endpoint(req: HazardPredictRequest):
     that being an explicit workplan item.
     """
     return predict_hazard(req.texts)
+
+
+# --- Photo lookup --------------------------------------------------------
+
+@app.get("/api/photos/{name}")
+def get_destination_photo(name: str):
+    """
+    Look up a destination photo by name.
+
+    Returns:
+        { "name": ..., "photoUrl": ..., "source": ... }
+
+    photoUrl is a relative path like "destination_images/baltit_fort.jpg"
+    that can be resolved by the caller against the ML service base URL.
+
+    Returns photoUrl: null when:
+        - The destination_photos.csv hasn't been generated yet
+          (wikimedia_photo_lookup.py hasn't been run)
+        - The destination name isn't in the CSV
+        - The CSV entry has no photo (source: "none")
+    """
+    key = name.strip().lower()
+    row = _photos_index.get(key)
+
+    if row is None:
+        return {"name": name, "photoUrl": None, "source": None}
+
+    photo_url = row.get("photo_url")
+    if pd.isna(photo_url) or not photo_url:
+        return {"name": name, "photoUrl": None, "source": row.get("source", "none")}
+
+    return {
+        "name": name,
+        "photoUrl": str(photo_url),
+        "source": row.get("source", "unknown"),
+    }
+
+
+# Serve downloaded destination images as static files so the frontend can
+# load them via {ML_SERVICE_URL}/images/baltit_fort.jpg
+if IMAGE_DIR.exists():
+    app.mount("/images", StaticFiles(directory=str(IMAGE_DIR)), name="destination_images")

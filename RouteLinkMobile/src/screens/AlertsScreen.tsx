@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { ScrollView, View, Text, StyleSheet, TouchableOpacity, RefreshControl } from 'react-native';
+import { ScrollView, View, Text, StyleSheet, TouchableOpacity, RefreshControl, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,7 +12,7 @@ import { EmptyState } from '../components/EmptyState';
 import { SkeletonCard } from '../components/Skeleton';
 import { StatusGlyph } from '../components/StatusGlyph';
 import { api, ApiError } from '../services/api';
-import { HazardAlert } from '../types';
+import { HazardAlert, HazardVerdict } from '../types';
 import { formatRelativeTime, hazardSeverityMeta } from '../utils/display';
 import { spacing, radius, typography, iconSize } from '../constants/theme';
 
@@ -31,6 +31,9 @@ export const AlertsScreen = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hazardInput, setHazardInput] = useState('');
+  const [hazardChecking, setHazardChecking] = useState(false);
+  const [verdict, setVerdict] = useState<HazardVerdict | null>(null);
 
   useEffect(() => {
     if (!regions.includes(region)) {
@@ -63,6 +66,21 @@ export const AlertsScreen = () => {
     setRefreshing(true);
     await load(false);
     setRefreshing(false);
+  };
+
+  const onCheckHazard = async () => {
+    const text = hazardInput.trim();
+    if (!text) return;
+    setHazardChecking(true);
+    setVerdict(null);
+    try {
+      const result = await api.classifyHazardText(text);
+      setVerdict(result);
+    } catch (e: any) {
+      setVerdict({ text, hazardConfidence: 0, isHazard: false });
+    } finally {
+      setHazardChecking(false);
+    }
   };
 
   return (
@@ -137,6 +155,85 @@ export const AlertsScreen = () => {
           ) : (
             alerts.map((alert) => <AlertRow key={alert.id} alert={alert} />)
           )}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={[styles.overline, { color: theme.colors.textSecondary }]}>Check a hazard report</Text>
+          <Card elevated={false}>
+            <Text style={[styles.checkLabel, { color: theme.colors.textPrimary }]}>
+              Paste or type a safety report to classify it.
+            </Text>
+            <TextInput
+              style={[
+                styles.hazardInput,
+                {
+                  color: theme.colors.textPrimary,
+                  borderColor: theme.colors.border,
+                  backgroundColor: theme.colors.surface,
+                },
+              ]}
+              placeholder="e.g. Landslide reported near Attabad Lake..."
+              placeholderTextColor={theme.colors.textSecondary}
+              value={hazardInput}
+              onChangeText={setHazardInput}
+              multiline
+              numberOfLines={3}
+              maxLength={10000}
+              textAlignVertical="top"
+            />
+            <TouchableOpacity
+              onPress={onCheckHazard}
+              disabled={hazardChecking || !hazardInput.trim()}
+              activeOpacity={0.8}
+              style={[
+                styles.checkBtn,
+                {
+                  backgroundColor: theme.colors.buttonPrimary,
+                  opacity: hazardChecking || !hazardInput.trim() ? 0.5 : 1,
+                },
+              ]}
+            >
+              <Text style={[styles.checkBtnText, { color: theme.colors.onButtonPrimary }]}>
+                {hazardChecking ? 'Analyzing...' : 'Classify report'}
+              </Text>
+            </TouchableOpacity>
+            {verdict && (
+              <View
+                style={[
+                  styles.verdictBox,
+                  {
+                    backgroundColor: verdict.isHazard
+                      ? theme.colors.dangerLight || 'rgba(255,59,48,0.1)'
+                      : 'rgba(52,199,89,0.1)',
+                  },
+                ]}
+              >
+                <Ionicons
+                  name={verdict.isHazard ? 'warning' : 'checkmark-circle'}
+                  size={iconSize.md}
+                  color={verdict.isHazard ? theme.colors.danger : '#34C759'}
+                />
+                <View style={styles.verdictBody}>
+                  <Text
+                    style={[
+                      styles.verdictLabel,
+                      { color: verdict.isHazard ? theme.colors.danger : '#34C759' },
+                    ]}
+                  >
+                    {verdict.isHazard ? 'Hazard detected' : 'No hazard'}
+                  </Text>
+                  <Text style={[styles.verdictConf, { color: theme.colors.textSecondary }]}>
+                    Confidence: {Math.round(verdict.hazardConfidence * 100)}%
+                  </Text>
+                  {verdict.source && (
+                    <Text style={[styles.verdictMeta, { color: theme.colors.textSecondary }]}>
+                      Source: {verdict.source}{verdict.degraded ? ' (degraded — keyword fallback)' : ''}{verdict.mocked ? ' (mock)' : ''}
+                    </Text>
+                  )}
+                </View>
+              </View>
+            )}
+          </Card>
         </View>
       </ScrollView>
     </View>
@@ -289,5 +386,53 @@ const styles = StyleSheet.create({
   },
   toggle: {
     ...typography.captionSemibold,
+  },
+  overline: {
+    ...typography.overline,
+    marginBottom: spacing.space3,
+  },
+  checkLabel: {
+    ...typography.body,
+    marginBottom: spacing.space3,
+  },
+  hazardInput: {
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: spacing.space3,
+    fontSize: 14,
+    lineHeight: 20,
+    minHeight: 80,
+    marginBottom: spacing.space3,
+  },
+  checkBtn: {
+    borderRadius: radius.lg,
+    paddingVertical: spacing.space3,
+    alignItems: 'center',
+  },
+  checkBtnText: {
+    ...typography.bodySemibold,
+  },
+  verdictBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: radius.lg,
+    padding: spacing.space3,
+    marginTop: spacing.space3,
+  },
+  verdictBody: {
+    marginLeft: spacing.space3,
+    flex: 1,
+  },
+  verdictLabel: {
+    ...typography.bodySemibold,
+  },
+  verdictConf: {
+    ...typography.caption,
+    marginTop: 2,
+  },
+  verdictMeta: {
+    ...typography.micro,
+    marginTop: 2,
+    fontStyle: 'italic',
   },
 });

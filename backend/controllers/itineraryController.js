@@ -1,6 +1,7 @@
 const { Trip, Itinerary, sequelize } = require('../models');
 const { enrichItinerary } = require('../services/itineraryEnricher');
 const itinerarySource = require('../services/itinerarySource');
+const { getIntradayItinerary } = require('../services/intradayScheduleService');
 const { getUserExcludeList } = require('../services/getUserExcludeList');
 const { getRecommendations } = require('../services/recommendationService');
 const {
@@ -386,4 +387,68 @@ async function getItinerary(req, res, next) {
   }
 }
 
-module.exports = { getItinerary, putItinerary, publicDay };
+module.exports = { getItinerary, putItinerary, generateItinerary, publicDay };
+
+async function generateItinerary(req, res, next) {
+  try {
+    const tripId = requireUuidParam(req, res, 'id', 'Trip id');
+    if (!tripId) {
+      return undefined;
+    }
+
+    const trip = await findVisibleTrip(req, tripId);
+    if (!trip) {
+      return res.status(404).json({ error: 'Trip not found' });
+    }
+
+    const excludeList = await getUserExcludeList(trip.userId);
+    const result = await getIntradayItinerary(trip, { exclude: excludeList });
+
+    // If ML returned no days (mock/city unsupported), fall back to placeholder days
+    let days = result.days;
+    if (days.length === 0) {
+      const dates = datesInRange(trip.startDate, trip.endDate);
+      days = dates.map((date, index) => ({
+        dayNumber: index + 1,
+        date,
+        slotType: 'mixed',
+        heatTier: 'mild',
+        weatherContext: null,
+        hazardContext: { activeAlerts: 0 },
+        activities: placeholderActivities(trip.destination, index + 1),
+        needsMarketplaceData: false,
+        fallbackMessage: null,
+      }));
+    }
+
+    // Validate and persist
+    const normalized = days.map(normalizeDay);
+    const rows = normalized.map((day) => buildRow(day, trip, result.source === 'ml' ? 'ml' : 'manual', 'weather-sched-v0.1'));
+
+    const created = await sequelize.transaction(async (transaction) => {
+      await Itinerary.destroy({ where: { tripId: trip.id }, transaction });
+      return Itinerary.bulkCreate(rows, { transaction, returning: true });
+    });
+
+    const itinerary = await enrichItinerary(
+      created.map(publicDay).sort((a, b) => a.dayNumber - b.dayNumber),
+      trip,
+    );
+
+    return res.status(200).json({
+      tripId: trip.id,
+      destination: trip.destination,
+      source: result.source,
+      mocked: result.mocked,
+      degraded: result.degraded,
+      reason: result.reason,
+      writtenBy: 'owner',
+      generator: 'weather-scheduler',
+      days: itinerary.length,
+      modelVersion: 'weather-sched-v0.1',
+      itinerary,
+    });
+  } catch (err) {
+    return next(err);
+  }
+}

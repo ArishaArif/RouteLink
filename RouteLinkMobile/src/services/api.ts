@@ -3,8 +3,10 @@ import {
   TripItinerary,
   Trip,
   Booking,
+  BookingStatus,
   Guide,
   HazardAlert,
+  HazardVerdict,
   User,
   DestinationState,
   AttractionSpot,
@@ -119,10 +121,6 @@ export const api = {
     const data = await request<{ trips: any[] }>(`${BASE_URL}/api/trips`);
     return (data.trips || []).map(normalizeTrip);
   },
-  async getTrip(id: string): Promise<Trip> {
-    const data = await request<{ trip: any }>(`${BASE_URL}/api/trips/${encodeURIComponent(id)}`);
-    return normalizeTrip(data.trip);
-  },
   async createTrip(tripData: { title: string; destination: string; startDate: string; endDate: string; budget?: number }): Promise<Trip> {
     const data = await request<{ trip: any }>(`${BASE_URL}/api/trips`, {
       method: 'POST',
@@ -143,12 +141,6 @@ export const api = {
   async getItinerary(tripId: string): Promise<TripItinerary> {
     return request<TripItinerary>(`${BASE_URL}/api/trips/${tripId}/itinerary`);
   },
-  async updateItinerary(tripId: string, payload: { modelVersion?: string; days: any[] }): Promise<TripItinerary> {
-    return request<TripItinerary>(`${BASE_URL}/api/trips/${tripId}/itinerary`, {
-      method: 'PUT',
-      body: JSON.stringify(payload),
-    });
-  },
 
   async listBookings(): Promise<Booking[]> {
     const data = await request<{ bookings: any[] }>(`${BASE_URL}/api/bookings`);
@@ -161,6 +153,13 @@ export const api = {
     });
     return normalizeBooking(data.booking);
   },
+  async updateBookingStatus(bookingId: string, status: BookingStatus): Promise<Booking> {
+    const data = await request<{ booking: any }>(`${BASE_URL}/api/bookings/${encodeURIComponent(bookingId)}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+    return normalizeBooking(data.booking);
+  },
 
   async getRecommendations(destination: string): Promise<AttractionSpot[]> {
     const data = await request<{ recommendations: any[] }>(
@@ -168,6 +167,21 @@ export const api = {
     );
     return (data.recommendations || []).map(normalizeSpot);
   },
+  async getPreferenceRecommendations(categories: string[], province?: string, limit?: number): Promise<AttractionSpot[]> {
+    const data = await request<{ recommendations: any[] }>(`${BASE_URL}/api/recommendations/preferences`, {
+      method: 'POST',
+      body: JSON.stringify({ categories, province, limit }),
+    });
+    return (data.recommendations || []).map(normalizeSpot);
+  },
+
+  async getDestinationPhoto(name: string): Promise<{ photoUrl: string | null; source: string | null; mlAvailable: boolean }> {
+    const data = await request<{ photoUrl: string | null; source: string | null; mlAvailable: boolean }>(
+      `${BASE_URL}/api/recommendations/photo?name=${encodeURIComponent(name)}`
+    );
+    return data;
+  },
+
   async getGuides(region?: string, language?: string): Promise<Guide[]> {
     const params = new URLSearchParams();
     if (region) params.append('region', region);
@@ -233,5 +247,27 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ message, sessionId }),
     });
+  },
+
+  async generateItinerary(tripId: string): Promise<TripItinerary & { source?: string; mocked?: boolean; degraded?: boolean; reason?: string | null }> {
+    return request(`${BASE_URL}/api/trips/${tripId}/itinerary/generate`, {
+      method: 'POST',
+    });
+  },
+
+  async classifyHazardText(text: string): Promise<HazardVerdict> {
+    const data = await request<{ verdict: any; source?: string; mocked?: boolean; degraded?: boolean; reason?: string | null }>(`${BASE_URL}/api/hazards/classify`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    });
+    return {
+      text: data.verdict.text,
+      hazardConfidence: parseNumber(data.verdict.hazardConfidence) ?? 0,
+      isHazard: Boolean(data.verdict.isHazard),
+      source: data.source,
+      mocked: data.mocked,
+      degraded: data.degraded,
+      reason: data.reason ?? null,
+    };
   },
 };

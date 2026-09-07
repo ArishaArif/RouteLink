@@ -107,8 +107,15 @@ export const TripProvider = ({ children }: { children: ReactNode }) => {
       setTrip(createdTrip);
       setTrips((prev) => [...prev, createdTrip]);
 
-      const realItinerary = await api.getItinerary(createdTrip.id);
-      setItinerary(realItinerary);
+      // Auto-generate weather-aware itinerary via ML pipeline
+      try {
+        const weatherItinerary = await api.generateItinerary(createdTrip.id);
+        setItinerary(weatherItinerary);
+      } catch (genErr: any) {
+        // Fall back to basic itinerary if weather generation fails
+        const fallbackItinerary = await api.getItinerary(createdTrip.id);
+        setItinerary(fallbackItinerary);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to create trip');
     } finally {

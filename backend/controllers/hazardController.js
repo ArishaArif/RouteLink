@@ -8,6 +8,8 @@ const {
   parsePagination,
 } = require('../utils/validate');
 
+const { classifyHazardText: classifyText } = require('../services/hazardClassificationService');
+
 const HAZARD_TYPES = ['weather', 'health', 'safety', 'political', 'natural_disaster', 'other'];
 const SEVERITIES = ['low', 'medium', 'high', 'critical'];
 
@@ -287,8 +289,38 @@ async function listHazards(req, res, next) {
 module.exports = {
   ingestHazard,
   listHazards,
+  classifyHazardText,
   publicHazard,
   HAZARD_TYPES,
   HAZARD_TYPE_ALIASES,
   resolveHazardType,
 };
+
+async function classifyHazardText(req, res, next) {
+  try {
+    const { text } = req.body || {};
+    const details = [];
+
+    if (!isNonEmptyString(text)) {
+      details.push('text is required and must be a non-empty string');
+    } else if (text.length > MAX_RAW_TEXT_LENGTH) {
+      details.push(`text must be at most ${MAX_RAW_TEXT_LENGTH} characters`);
+    }
+
+    if (details.length > 0) {
+      return res.status(400).json({ error: 'Validation failed', details });
+    }
+
+    const result = await classifyText(text.trim());
+
+    return res.status(200).json({
+      source: result.source,
+      mocked: result.mocked,
+      degraded: result.degraded,
+      reason: result.reason,
+      verdict: result.verdict,
+    });
+  } catch (err) {
+    return next(err);
+  }
+}

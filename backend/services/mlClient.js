@@ -76,11 +76,43 @@ async function health() {
   return request('GET', '/health');
 }
 
+async function fetchRecommendationsByPreferences({ categories, province, topN, exclude = [] }) {
+  return request('POST', '/api/recommend/preferences', {
+    body: { categories, province: province || undefined, top_n: topN, exclude },
+  });
+}
+
+async function fetchIntradayPlan(city, { exclude = [] } = {}) {
+  return request('POST', '/api/schedule/intraday', {
+    body: { city, exclude },
+  });
+}
+
+async function predictHazard(texts) {
+  return request('POST', '/api/predict/hazard', {
+    body: { texts },
+  });
+}
+
+/**
+ * Look up a destination photo from the ML pipeline's Wikimedia photo
+ * database.  Returns { ok, data: { photoUrl, source } }.
+ * photoUrl is a relative path like "destination_images/baltit_fort.jpg"
+ * that the caller resolves against the ML service base URL.
+ */
+async function fetchPhotoUrl(name) {
+  return request('GET', `/api/photos/${encodeURIComponent(name)}`);
+}
+
 module.exports = {
   isConfigured,
   baseUrl,
   timeoutMs,
   fetchSimilarDestinations,
+  fetchRecommendationsByPreferences,
+  fetchIntradayPlan,
+  predictHazard,
+  fetchPhotoUrl,
   health,
   DEFAULT_BASE_URL,
   DEFAULT_TIMEOUT_MS,

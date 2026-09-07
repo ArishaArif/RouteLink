@@ -1,5 +1,17 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ScrollView, View, Text, StyleSheet, RefreshControl, TouchableOpacity, Alert, Vibration } from 'react-native';
+import {
+  ScrollView,
+  View,
+  Text,
+  StyleSheet,
+  RefreshControl,
+  TouchableOpacity,
+  Alert,
+  Vibration,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
@@ -7,6 +19,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTrip } from '../context/TripContext';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
+import { Input } from '../components/Input';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonCard } from '../components/Skeleton';
 import { api } from '../services/api';
@@ -22,6 +35,12 @@ export const TripsScreen = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [editingTrip, setEditingTrip] = useState<Trip | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDestination, setEditDestination] = useState('');
+  const [editStartDate, setEditStartDate] = useState('');
+  const [editEndDate, setEditEndDate] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
@@ -74,6 +93,42 @@ export const TripsScreen = () => {
     navigation.navigate('Routes' as never);
   };
 
+  const openEdit = (trip: Trip) => {
+    setEditingTrip(trip);
+    setEditTitle(trip.title);
+    setEditDestination(trip.destination);
+    setEditStartDate(trip.startDate);
+    setEditEndDate(trip.endDate);
+  };
+
+  const closeEdit = () => {
+    setEditingTrip(null);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingTrip) return;
+    if (!editTitle.trim() || !editDestination.trim() || !editStartDate || !editEndDate) {
+      Alert.alert('Missing fields', 'Please fill in all fields.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const updated = await api.updateTrip(editingTrip.id, {
+        title: editTitle.trim(),
+        destination: editDestination.trim(),
+        startDate: editStartDate,
+        endDate: editEndDate,
+      });
+      setTrips((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+      await loadTrips();
+      closeEdit();
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Failed to update trip.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <ScrollView
       style={[styles.container, { backgroundColor: theme.colors.background }]}
@@ -107,11 +162,64 @@ export const TripsScreen = () => {
               trip={trip}
               onOpen={() => handleOpen(trip)}
               onDelete={() => handleDelete(trip)}
+              onEdit={() => openEdit(trip)}
               deleting={deletingId === trip.id}
             />
           ))
         )}
       </View>
+
+      <Modal visible={editingTrip !== null} animationType="slide" transparent>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+        >
+          <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+            <View style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
+              <View style={styles.modalHeader}>
+                <Text style={[styles.modalTitle, { color: theme.colors.textPrimary }]}>Edit Trip</Text>
+                <TouchableOpacity onPress={closeEdit} activeOpacity={0.8}>
+                  <Ionicons name="close" size={24} color={theme.colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+              <Input
+                label="Title"
+                value={editTitle}
+                onChangeText={setEditTitle}
+                placeholder="Trip title"
+              />
+              <Input
+                label="Destination"
+                value={editDestination}
+                onChangeText={setEditDestination}
+                placeholder="e.g. Hunza, Skardu"
+                autoCapitalize="words"
+                containerStyle={{ marginTop: 12 }}
+              />
+              <Input
+                label="Start date (YYYY-MM-DD)"
+                value={editStartDate}
+                onChangeText={setEditStartDate}
+                placeholder="2026-06-01"
+                containerStyle={{ marginTop: 12 }}
+              />
+              <Input
+                label="End date (YYYY-MM-DD)"
+                value={editEndDate}
+                onChangeText={setEditEndDate}
+                placeholder="2026-06-07"
+                containerStyle={{ marginTop: 12 }}
+              />
+              <Button
+                title={saving ? 'Saving...' : 'Save changes'}
+                onPress={handleSaveEdit}
+                loading={saving}
+                style={{ marginTop: 20 }}
+              />
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </ScrollView>
   );
 };
@@ -120,11 +228,13 @@ const TripCard = ({
   trip,
   onOpen,
   onDelete,
+  onEdit,
   deleting,
 }: {
   trip: Trip;
   onOpen: () => void;
   onDelete: () => void;
+  onEdit: () => void;
   deleting: boolean;
 }) => {
   const { theme } = useTheme();
@@ -152,6 +262,13 @@ const TripCard = ({
           variant="secondary"
           icon="calendar-outline"
           onPress={onOpen}
+          style={{ flex: 1 }}
+        />
+        <Button
+          title="Edit"
+          variant="ghost"
+          icon="create-outline"
+          onPress={onEdit}
           style={{ flex: 1 }}
         />
         <Button
@@ -225,5 +342,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginTop: 14,
     gap: 10,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingBottom: 40,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '700',
   },
 });

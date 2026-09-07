@@ -170,8 +170,75 @@ async function getRecommendations(destination, { exclude = [], poolSize } = {}) 
   };
 }
 
+function fallbackPoolByCategory(categories, exclude, poolSize) {
+  const catSet = new Set(categories.map((c) => String(c).trim().toLowerCase()));
+  const ranked = itinerarySource.CANDIDATE_DESTINATIONS
+    .filter((d) => catSet.has(String(d.category || '').trim().toLowerCase()))
+    .map((d, i) => ({ ...d, score: Number((0.95 - i * 0.06).toFixed(3)) }));
+
+  if (ranked.length === 0) {
+    return fallbackPool(exclude, poolSize);
+  }
+
+  const mapped = ranked.map(normalizeMlRow).filter(Boolean).map(withKnownCoords);
+  return applyExclude(mapped, exclude).slice(0, poolSize);
+}
+
+async function getPreferenceRecommendations(categories, { province, exclude = [], poolSize } = {}) {
+  const size = clampPoolSize(poolSize);
+
+  if (!mlClient.isConfigured()) {
+    return {
+      categories,
+      province: province || null,
+      source: 'mock',
+      mocked: true,
+      degraded: false,
+      reason: 'ml_service_not_configured',
+      excludeApplied: exclude,
+      recommendations: fallbackPoolByCategory(categories, exclude, size),
+    };
+  }
+
+  const result = await mlClient.fetchRecommendationsByPreferences({
+    categories,
+    province,
+    topN: size,
+    exclude,
+  });
+
+  if (result.ok && Array.isArray(result.data)) {
+    const mapped = result.data.map(normalizeMlRow).filter(Boolean).map(withKnownCoords);
+    const rows = applyExclude(mapped, exclude).slice(0, size);
+    const topped = rows.length < size ? [...rows, ...fallbackPool([...exclude, ...rows.map((r) => r.name)], size - rows.length)] : rows;
+
+    return {
+      categories,
+      province: province || null,
+      source: 'ml',
+      mocked: false,
+      degraded: false,
+      reason: null,
+      excludeApplied: exclude,
+      recommendations: topped,
+    };
+  }
+
+  return {
+    categories,
+    province: province || null,
+    source: 'mock',
+    mocked: true,
+    degraded: true,
+    reason: result.reason || 'upstream_error',
+    excludeApplied: exclude,
+    recommendations: fallbackPoolByCategory(categories, exclude, size),
+  };
+}
+
 module.exports = {
   getRecommendations,
+  getPreferenceRecommendations,
   clampPoolSize,
   normalizeMlRow,
   applyExclude,

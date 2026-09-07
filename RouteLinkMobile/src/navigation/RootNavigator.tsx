@@ -5,6 +5,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { RootTabParamList, RootStackParamList } from '../types';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 import { HomeScreen } from '../screens/HomeScreen';
 import { TripPlannerScreen } from '../screens/TripPlannerScreen';
@@ -66,16 +67,36 @@ function MainTabNavigator() {
         },
       })}
     >
-      <Tab.Screen name="Explore" component={HomeScreen} options={{ title: 'Explore' }} />
-      <Tab.Screen name="Routes" component={TripPlannerScreen} options={{ title: 'Routes' }} />
-      <Tab.Screen name="Guides" component={MarketplaceScreen} options={{ title: 'Guides' }} />
-      <Tab.Screen name="Alerts" component={AlertsScreen} options={{ title: 'Alerts' }} />
+      <Tab.Screen
+        name="Explore"
+        component={() => <ErrorBoundary><HomeScreen /></ErrorBoundary>}
+        options={{ title: 'Explore' }}
+      />
+      <Tab.Screen
+        name="Routes"
+        component={() => <ErrorBoundary><TripPlannerScreen /></ErrorBoundary>}
+        options={{ title: 'Routes' }}
+      />
+      <Tab.Screen
+        name="Guides"
+        component={() => <ErrorBoundary><MarketplaceScreen /></ErrorBoundary>}
+        options={{ title: 'Guides' }}
+      />
+      <Tab.Screen
+        name="Alerts"
+        component={() => <ErrorBoundary><AlertsScreen /></ErrorBoundary>}
+        options={{ title: 'Alerts' }}
+      />
       <Tab.Screen
         name="SOS"
-        component={SOSScreen}
+        component={() => <ErrorBoundary><SOSScreen /></ErrorBoundary>}
         options={{ title: 'SOS', headerTintColor: theme.colors.buttonDanger }}
       />
-      <Tab.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
+      <Tab.Screen
+        name="Profile"
+        component={() => <ErrorBoundary><ProfileScreen /></ErrorBoundary>}
+        options={{ title: 'Profile' }}
+      />
     </Tab.Navigator>
   );
 }
@@ -94,7 +115,7 @@ export default function RootNavigator({ currentRoute }: { currentRoute: string }
         <Stack.Screen name="MainTabs" component={MainTabNavigator} />
         <Stack.Screen
           name="GuideDetail"
-          component={GuideDetailScreen}
+          component={(props: any) => <ErrorBoundary><GuideDetailScreen {...props} /></ErrorBoundary>}
           options={{
             headerShown: true,
             presentation: 'card',
@@ -106,7 +127,7 @@ export default function RootNavigator({ currentRoute }: { currentRoute: string }
         />
         <Stack.Screen
           name="Bookings"
-          component={BookingsScreen}
+          component={(props: any) => <ErrorBoundary><BookingsScreen {...props} /></ErrorBoundary>}
           options={{
             headerShown: true,
             title: 'My Bookings',
@@ -117,7 +138,7 @@ export default function RootNavigator({ currentRoute }: { currentRoute: string }
         />
         <Stack.Screen
           name="Trips"
-          component={TripsScreen}
+          component={(props: any) => <ErrorBoundary><TripsScreen {...props} /></ErrorBoundary>}
           options={{
             headerShown: true,
             title: 'My Trips',

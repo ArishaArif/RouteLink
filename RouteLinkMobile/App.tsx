@@ -5,6 +5,9 @@ import { NavigationContainer, NavigationContainerRef } from '@react-navigation/n
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { TripProvider } from './src/context/TripContext';
+import { NetworkProvider } from './src/context/NetworkContext';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
+import { OfflineBanner } from './src/components/OfflineBanner';
 import RootNavigator from './src/navigation/RootNavigator';
 import { AuthScreen } from './src/screens/AuthScreen';
 
@@ -42,6 +45,7 @@ function AppRoot() {
   return (
     <NavigationContainer ref={navigationRef} onStateChange={onStateChange}>
       <ThemedStatusBar />
+      <OfflineBanner />
       {user ? <RootNavigator currentRoute={currentRoute} /> : <AuthScreen />}
     </NavigationContainer>
   );
@@ -50,13 +54,17 @@ function AppRoot() {
 export default function App() {
   return (
     <SafeAreaProvider>
-      <ThemeProvider>
-        <AuthProvider>
-          <TripProvider>
-            <AppRoot />
-          </TripProvider>
-        </AuthProvider>
-      </ThemeProvider>
+      <ErrorBoundary>
+        <ThemeProvider>
+          <NetworkProvider>
+            <AuthProvider>
+              <TripProvider>
+                <AppRoot />
+              </TripProvider>
+            </AuthProvider>
+          </NetworkProvider>
+        </ThemeProvider>
+      </ErrorBoundary>
     </SafeAreaProvider>
   );
 }

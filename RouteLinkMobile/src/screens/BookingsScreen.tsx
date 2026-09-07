@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { ScrollView, View, Text, StyleSheet, RefreshControl } from 'react-native';
+import { ScrollView, View, Text, StyleSheet, RefreshControl, TouchableOpacity, Alert } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { Card } from '../components/Card';
@@ -8,7 +9,7 @@ import { Avatar } from '../components/Avatar';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonCard } from '../components/Skeleton';
 import { api } from '../services/api';
-import { Booking } from '../types';
+import { Booking, BookingStatus } from '../types';
 import { formatPrice, formatDateRange } from '../utils/display';
 
 
@@ -18,6 +19,7 @@ export const BookingsScreen = () => {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   const load = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
@@ -72,7 +74,22 @@ export const BookingsScreen = () => {
                 {status.charAt(0).toUpperCase() + status.slice(1)}
               </Text>
               {grouped[status].map((booking) => (
-                <BookingCard key={booking.id} booking={booking} />
+                <BookingCard
+                  key={booking.id}
+                  booking={booking}
+                  updating={updatingId === booking.id}
+                  onStatusChange={async (newStatus: BookingStatus) => {
+                    setUpdatingId(booking.id);
+                    try {
+                      const updated = await api.updateBookingStatus(booking.id, newStatus);
+                      setBookings((prev) => prev.map((b) => (b.id === booking.id ? updated : b)));
+                    } catch (e: any) {
+                      Alert.alert('Error', e.message || 'Failed to update booking.');
+                    } finally {
+                      setUpdatingId(null);
+                    }
+                  }}
+                />
               ))}
             </View>
           ))
@@ -82,7 +99,30 @@ export const BookingsScreen = () => {
   );
 };
 
-const BookingCard = ({ booking }: { booking: Booking }) => {
+const BOOKING_ACTIONS: Record<string, { label: string; status: BookingStatus; icon: string; color: string }[]> = {
+  requested: [
+    { label: 'Confirm', status: 'confirmed', icon: 'checkmark-circle', color: '#34C759' },
+    { label: 'Cancel', status: 'cancelled', icon: 'close-circle', color: '#FF3B30' },
+  ],
+  pending: [
+    { label: 'Confirm', status: 'confirmed', icon: 'checkmark-circle', color: '#34C759' },
+    { label: 'Cancel', status: 'cancelled', icon: 'close-circle', color: '#FF3B30' },
+  ],
+  confirmed: [
+    { label: 'Complete', status: 'completed', icon: 'flag-checkered', color: '#007AFF' },
+    { label: 'Cancel', status: 'cancelled', icon: 'close-circle', color: '#FF3B30' },
+  ],
+};
+
+const BookingCard = ({
+  booking,
+  updating,
+  onStatusChange,
+}: {
+  booking: Booking;
+  updating: boolean;
+  onStatusChange: (status: BookingStatus) => void;
+}) => {
   const { theme } = useTheme();
   const guideName = booking.guide?.name ?? 'Guide';
   const trip = booking.trip;
@@ -108,6 +148,31 @@ const BookingCard = ({ booking }: { booking: Booking }) => {
             </Text>
           )}
         </View>
+        {booking.viewerRole === 'guide' && BOOKING_ACTIONS[booking.status] && (
+          <View style={styles.actionRow}>
+            {BOOKING_ACTIONS[booking.status].map((action) => (
+              <TouchableOpacity
+                key={action.status}
+                onPress={() => {
+                  Alert.alert(
+                    `${action.label} booking`,
+                    `Mark this booking as ${action.status}?`,
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: action.label, onPress: () => onStatusChange(action.status) },
+                    ]
+                  );
+                }}
+                disabled={updating}
+                activeOpacity={0.8}
+                style={[styles.actionBtn, { borderColor: action.color, opacity: updating ? 0.5 : 1 }]}
+              >
+                <Ionicons name={action.icon as any} size={16} color={action.color} />
+                <Text style={[styles.actionLabel, { color: action.color }]}>{action.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
     </Card>
   );
 };
@@ -172,5 +237,24 @@ const styles = StyleSheet.create({
   role: {
     fontSize: 12,
     textTransform: 'capitalize',
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  actionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 8,
+    gap: 6,
+  },
+  actionLabel: {
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

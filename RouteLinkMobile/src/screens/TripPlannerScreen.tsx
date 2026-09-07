@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   ScrollView,
   View,
@@ -9,7 +9,9 @@ import {
   Platform,
   UIManager,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -26,11 +28,56 @@ import { StatTile } from '../components/StatTile';
 import { Skeleton, SkeletonCard } from '../components/Skeleton';
 import { EmptyState } from '../components/EmptyState';
 import { api } from '../services/api';
-import { TripDay, HazardAlert, Trip, RootStackParamList } from '../types';
+import { TripDay, HazardAlert, Trip, Activity, RootStackParamList } from '../types';
 import { heatTierMeta, heatTierColor, formatDate } from '../utils/display';
+import { destinationPhoto } from '../utils/destinationPhotos';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+/**
+ * In-memory cache for ML photo lookups so each destination name is only
+ * fetched once per session.  Keyed by lowercased destination name.
+ */
+const _photoCache = new Map<string, string | null>();
+
+/**
+ * Hook: resolve a destination photo.
+ * 1. Returns the Unsplash fallback instantly (so the UI isn't blank).
+ * 2. Fires an async ML API lookup in the background.
+ * 3. If the ML returns a real photo URL, updates to that.
+ */
+function useDestinationPhoto(location: string | null | undefined): string | null {
+  const [url, setUrl] = useState<string | null>(() => destinationPhoto(location) ?? null);
+  const fetchedRef = useRef(false);
+
+  useEffect(() => {
+    if (!location || fetchedRef.current) return;
+    const key = location.trim().toLowerCase();
+
+    // Already cached
+    if (_photoCache.has(key)) {
+      const cached = _photoCache.get(key);
+      if (cached) setUrl(cached);
+      fetchedRef.current = true;
+      return;
+    }
+
+    fetchedRef.current = true;
+    api.getDestinationPhoto(location).then((res) => {
+      if (res.photoUrl) {
+        _photoCache.set(key, res.photoUrl);
+        setUrl(res.photoUrl);
+      } else {
+        _photoCache.set(key, null);
+      }
+    }).catch(() => {
+      // ML unavailable — Unsplash fallback already showing
+    });
+  }, [location]);
+
+  return url;
 }
 
 export const TripPlannerScreen = () => {
@@ -54,6 +101,8 @@ export const TripPlannerScreen = () => {
   const [hazardLoading, setHazardLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+  const [weatherPlanLoading, setWeatherPlanLoading] = useState(false);
+  const [weatherPlanMsg, setWeatherPlanMsg] = useState<string | null>(null);
 
   const loadHazards = useCallback(async () => {
     setHazardLoading(true);
@@ -81,6 +130,26 @@ export const TripPlannerScreen = () => {
     setRefreshing(true);
     await Promise.all([loadHazards()]);
     setRefreshing(false);
+  };
+
+  const onGenerateWeatherPlan = async () => {
+    if (!trip) return;
+    setWeatherPlanLoading(true);
+    setWeatherPlanMsg(null);
+    try {
+      const result = await api.generateItinerary(trip.id);
+      const src = result.source || 'weather-scheduler';
+      const degraded = result.degraded ? ' (degraded)' : '';
+      const mocked = result.mocked ? ' (mock)' : '';
+      setWeatherPlanMsg(`Plan regenerated via ${src}${degraded}${mocked}.`);
+      // Reload the itinerary to reflect the newly generated days
+      await selectTrip(trip);
+      await loadHazards();
+    } catch (e: any) {
+      setWeatherPlanMsg(e?.message || 'Failed to generate weather plan.');
+    } finally {
+      setWeatherPlanLoading(false);
+    }
   };
 
   const days = itinerary?.itinerary || [];
@@ -122,6 +191,26 @@ export const TripPlannerScreen = () => {
             loading={tripLoading}
             style={{ marginTop: 16 }}
           />
+          {trip && (
+            <TouchableOpacity
+              onPress={onGenerateWeatherPlan}
+              disabled={weatherPlanLoading}
+              activeOpacity={0.8}
+              style={[styles.weatherPlanBtn, { borderColor: theme.colors.primary }]}
+            >
+              {weatherPlanLoading ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : (
+                <Ionicons name="cloud-outline" size={18} color={theme.colors.primary} />
+              )}
+              <Text style={[styles.weatherPlanText, { color: theme.colors.primary }]}>
+                {weatherPlanLoading ? 'Generating...' : 'Refresh weather plan'}
+              </Text>
+            </TouchableOpacity>
+          )}
+          {weatherPlanMsg && (
+            <Text style={[styles.hint, { color: theme.colors.textSecondary }]}>{weatherPlanMsg}</Text>
+          )}
           {!trip && !tripLoading && (
             <Text style={[styles.hint, { color: theme.colors.textSecondary }]}>
               No trip exists yet. Set a destination and tap Plan trip to create one.
@@ -235,10 +324,25 @@ const TripPill = ({ trip, active, onPress }: { trip: Trip; active: boolean; onPr
   );
 };
 
+function dayWeatherSummary(day: TripDay): string | null {
+  const ctx = day.weatherContext;
+  if (!ctx) return null;
+  const temp = ctx.avgTempC ?? ctx.highC ?? ctx.tempC ?? ctx.temperatureC;
+  const condition = ctx.condition ?? ctx.summary;
+  const parts: string[] = [];
+  if (typeof temp === 'number' && Number.isFinite(temp)) parts.push(`${Math.round(temp)}°C`);
+  if (typeof condition === 'string' && condition.trim()) {
+    const c = condition.replace(/_/g, ' ').trim();
+    parts.push(c.charAt(0).toUpperCase() + c.slice(1));
+  }
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
 const DayCard = ({ day, expanded, onToggle }: { day: TripDay; expanded: boolean; onToggle: () => void }) => {
   const { theme } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const guides = day.needsMarketplaceData ? day.marketplace?.guides || [] : [];
+  const weatherSummary = dayWeatherSummary(day);
 
   return (
     <Card style={styles.dayCard}>
@@ -251,6 +355,11 @@ const DayCard = ({ day, expanded, onToggle }: { day: TripDay; expanded: boolean;
             <Text style={[styles.dayDate, { color: theme.colors.textSecondary }]}>
               {formatDate(day.date)}
             </Text>
+            {weatherSummary && (
+              <Text style={[styles.dayWeather, { color: theme.colors.textSecondary }]}>
+                {weatherSummary}
+              </Text>
+            )}
           </View>
           <View style={styles.dayBadges}>
             {day.heatTier && <Badge badge={{ kind: 'heat', value: day.heatTier }} tone="heatRamp" />}
@@ -268,24 +377,18 @@ const DayCard = ({ day, expanded, onToggle }: { day: TripDay; expanded: boolean;
               </Text>
             </View>
           )}
+          {day.hazardContext?.activeAlerts ? (
+            <View style={[styles.hazardCtx, { backgroundColor: theme.colors.dangerLight || 'rgba(255,59,48,0.08)' }]}>
+              <Ionicons name="warning-outline" size={14} color={theme.colors.danger} />
+              <Text style={[styles.hazardCtxText, { color: theme.colors.danger }]}>
+                {day.hazardContext.activeAlerts} active alert{day.hazardContext.activeAlerts > 1 ? 's' : ''} in this region
+              </Text>
+            </View>
+          ) : null}
           {day.activities.length === 0 ? (
             <Text style={[styles.body, { color: theme.colors.textSecondary }]}>No activities planned yet.</Text>
           ) : (
-            day.activities.map((a, idx) => (
-              <View key={idx} style={styles.activity}>
-                <View style={styles.timeline}>
-                  <View style={[styles.dot, { backgroundColor: theme.colors.primary }]} />
-                  {idx < day.activities.length - 1 && (
-                    <View style={[styles.line, { backgroundColor: theme.colors.border }]} />
-                  )}
-                </View>
-                <View style={styles.activityContent}>
-                  <Text style={[styles.activityTime, { color: theme.colors.textSecondary }]}>{a.time}</Text>
-                  <Text style={[styles.activityTitle, { color: theme.colors.textPrimary }]}>{a.title}</Text>
-                  {a.location && <Text style={[styles.body, { color: theme.colors.textSecondary }]}>{a.location}</Text>}
-                </View>
-              </View>
-            ))
+            <ActivityList activities={day.activities} />
           )}
           {guides.length > 0 && (
             <View style={styles.guidesSection}>
@@ -311,6 +414,71 @@ const DayCard = ({ day, expanded, onToggle }: { day: TripDay; expanded: boolean;
     </Card>
   );
 };
+
+/**
+ * Renders a single activity with its photo.  Extracted so it can call
+ * the useDestinationPhoto hook (hooks can't be used inside .map()).
+ */
+const ActivityItem = ({
+  activity,
+  index,
+  isLast,
+}: {
+  activity: Activity;
+  index: number;
+  isLast: boolean;
+}) => {
+  const { theme } = useTheme();
+  const photo = useDestinationPhoto(activity.location);
+
+  return (
+    <View style={styles.activity}>
+      <View style={styles.timeline}>
+        <View style={[styles.dot, { backgroundColor: theme.colors.primary }]} />
+        {!isLast && <View style={[styles.line, { backgroundColor: theme.colors.border }]} />}
+      </View>
+      <View style={styles.activityContent}>
+        <Text style={[styles.activityTime, { color: theme.colors.textSecondary }]}>{activity.time}</Text>
+        <View style={styles.activityTitleRow}>
+          <View style={styles.activityTextCol}>
+            <Text style={[styles.activityTitle, { color: theme.colors.textPrimary }]}>{activity.title}</Text>
+            {activity.location && (
+              <Text style={[styles.activityLocation, { color: theme.colors.textSecondary }]}>
+                {activity.location}
+              </Text>
+            )}
+          </View>
+          {photo && (
+            <Image
+              source={{ uri: photo }}
+              style={styles.activityThumb}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={200}
+            />
+          )}
+        </View>
+        <View style={styles.activityBadges}>
+          {activity.heatTier && <Badge badge={{ kind: 'heat', value: activity.heatTier }} tone="heatRamp" />}
+          {activity.slotType && <Badge badge={{ kind: 'slot', value: activity.slotType }} />}
+        </View>
+        {activity.notes && activity.notes !== activity.title && (
+          <Text style={[styles.activityNotes, { color: theme.colors.textSecondary }]} numberOfLines={2}>
+            {activity.notes}
+          </Text>
+        )}
+      </View>
+    </View>
+  );
+};
+
+const ActivityList = ({ activities }: { activities: Activity[] }) => (
+  <>
+    {activities.map((a, idx) => (
+      <ActivityItem key={idx} activity={a} index={idx} isLast={idx === activities.length - 1} />
+    ))}
+  </>
+);
 
 const styles = StyleSheet.create({
   container: {
@@ -428,15 +596,59 @@ const styles = StyleSheet.create({
   activityContent: {
     flex: 1,
   },
+  activityTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  activityTextCol: {
+    flex: 1,
+    marginRight: 8,
+  },
+  activityThumb: {
+    width: 56,
+    height: 56,
+    borderRadius: 8,
+  },
   activityTime: {
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 0.4,
     textTransform: 'uppercase',
   },
+  activityBadges: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 4,
+  },
+  hazardCtx: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 12,
+  },
+  hazardCtxText: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 6,
+  },
   activityTitle: {
     fontSize: 15,
     fontWeight: '600',
+    marginTop: 2,
+  },
+  activityLocation: {
+    fontSize: 13,
+    marginTop: 2,
+  },
+  activityNotes: {
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 4,
+  },
+  dayWeather: {
+    fontSize: 12,
     marginTop: 2,
   },
   guidesSection: {
@@ -477,5 +689,19 @@ const styles = StyleSheet.create({
   hazardText: {
     fontSize: 15,
     lineHeight: 22,
+  },
+  weatherPlanBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    marginTop: 10,
+    gap: 8,
+  },
+  weatherPlanText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

@@ -80,16 +80,21 @@ export interface TripDay {
   hazardContext?: Record<string, any> | null;
   activities: Activity[];
   marketplace?: DayMarketplace;
-  source?: 'stored' | 'placeholder';
+  source?: string;
 }
 
 export interface TripItinerary {
   tripId: string;
   days: number;
   itinerary: TripDay[];
-  source: 'stored' | 'placeholder';
+  source: string;
   modelVersion?: string;
   generatedAt?: string;
+  mocked?: boolean;
+  degraded?: boolean;
+  reason?: string | null;
+  generator?: string;
+  destination?: string;
 }
 
 export interface HazardAlert {
@@ -155,6 +160,7 @@ export interface AttractionSpot {
   longitude?: number | null;
   imageUrl?: string | null;
   heatTier?: HeatTier;
+  category?: string | null;
 }
 
 export interface ChatbotMessage {
@@ -163,4 +169,14 @@ export interface ChatbotMessage {
   text: string;
   timestamp: number;
   error?: boolean;
+}
+
+export interface HazardVerdict {
+  text: string;
+  hazardConfidence: number;
+  isHazard: boolean;
+  source?: string;
+  mocked?: boolean;
+  degraded?: boolean;
+  reason?: string | null;
 }

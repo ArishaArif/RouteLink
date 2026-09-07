@@ -43,6 +43,15 @@ const HERO_IMAGE = 'https://images.unsplash.com/photo-1518182170546-0766bc6f9213
 const HERO_HEIGHT = 240;
 const EXPLORE_CARD_WIDTH = width * 0.62;
 
+const CATEGORIES = [
+  { key: 'valley', label: 'Valleys' },
+  { key: 'lake', label: 'Lakes' },
+  { key: 'meadow', label: 'Meadows' },
+  { key: 'plateau', label: 'Plateaus' },
+  { key: 'mountain pass', label: 'Passes' },
+  { key: 'town', label: 'Towns' },
+];
+
 function imageForSpot(spot: AttractionSpot): string | null {
   const match = DESTINATIONS.find((d) => d.name.toLowerCase() === spot.name.toLowerCase());
   return match?.image ?? spot.imageUrl ?? null;
@@ -50,7 +59,7 @@ function imageForSpot(spot: AttractionSpot): string | null {
 
 function findWeatherNumber(ctx: Record<string, any> | null | undefined): number | null {
   if (!ctx) return null;
-  for (const key of ['highC', 'tempC', 'temperatureC', 'lowC']) {
+  for (const key of ['avgTempC', 'highC', 'tempC', 'temperatureC', 'lowC']) {
     const val = ctx[key];
     if (typeof val === 'number' && Number.isFinite(val)) return val;
   }
@@ -96,6 +105,7 @@ export const HomeScreen = () => {
   const [alertTotal, setAlertTotal] = useState(0);
   const [excludeList, setExcludeList] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [activeCategories, setActiveCategories] = useState<Set<string>>(new Set());
 
   const scrollY = useRef(new Animated.Value(0)).current;
 
@@ -106,13 +116,26 @@ export const HomeScreen = () => {
   const condition = weatherCondition(today?.weatherContext);
   const progress = activeTrip ? dayOfTrip(activeTrip) : null;
 
+  const toggleCategory = (key: string) => {
+    setActiveCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   const load = useCallback(
     async (showLoading = true) => {
       if (showLoading) setLoading(true);
       setError(null);
       try {
+        const cats = Array.from(activeCategories);
+        const recPromise = cats.length > 0
+          ? api.getPreferenceRecommendations(cats, undefined, 10)
+          : api.getRecommendations(activeDestination);
         const [recData, hazardData, stateData] = await Promise.all([
-          api.getRecommendations(activeDestination),
+          recPromise,
           api.getHazards(activeDestination),
           api.getDestinationState(),
         ]);
@@ -126,7 +149,7 @@ export const HomeScreen = () => {
         if (showLoading) setLoading(false);
       }
     },
-    [activeDestination]
+    [activeDestination, activeCategories]
   );
 
   useEffect(() => {
@@ -316,8 +339,35 @@ export const HomeScreen = () => {
         </View>
 
         <View style={styles.section}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.chipRow}
+          >
+            {CATEGORIES.map((cat) => {
+              const active = activeCategories.has(cat.key);
+              return (
+                <TouchableOpacity
+                  key={cat.key}
+                  onPress={() => toggleCategory(cat.key)}
+                  activeOpacity={0.8}
+                  style={[
+                    styles.chip,
+                    {
+                      backgroundColor: active ? theme.colors.buttonPrimary : theme.colors.surface,
+                      borderColor: active ? theme.colors.buttonPrimary : theme.colors.border,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.chipText, { color: active ? theme.colors.onButtonPrimary : theme.colors.textSecondary }]}>
+                    {cat.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
           <Text style={[styles.overline, styles.exploreHeading, { color: theme.colors.textSecondary }]}>
-            Explore {activeDestination}
+            {activeCategories.size > 0 ? 'Filtered picks' : `Explore ${activeDestination}`}
           </Text>
           {loading ? (
             <>
@@ -452,6 +502,11 @@ const ExploreCard = ({
           <Text style={styles.exploreLocation} numberOfLines={1}>
             {spot.location}
           </Text>
+          {spot.category && (
+            <Text style={styles.exploreCategory} numberOfLines={1}>
+              {spot.category.charAt(0).toUpperCase() + spot.category.slice(1)}
+            </Text>
+          )}
         </View>
       </ImageBackground>
     </View>
@@ -636,6 +691,20 @@ const styles = StyleSheet.create({
     ...typography.caption,
     marginTop: 2,
   },
+  chipRow: {
+    paddingHorizontal: spacing.space4,
+    gap: spacing.space2,
+    marginBottom: spacing.space3,
+  },
+  chip: {
+    paddingHorizontal: spacing.space3,
+    paddingVertical: spacing.space2,
+    borderRadius: radius.full,
+    borderWidth: 1,
+  },
+  chipText: {
+    ...typography.captionSemibold,
+  },
   exploreHeading: {
     marginBottom: spacing.space3,
   },
@@ -686,5 +755,11 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: 'rgba(255,255,255,0.85)',
     marginTop: 2,
+  },
+  exploreCategory: {
+    ...typography.micro,
+    color: 'rgba(255,255,255,0.7)',
+    marginTop: 2,
+    fontStyle: 'italic',
   },
 });
