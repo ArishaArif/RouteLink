@@ -7,6 +7,14 @@ const DEFAULT_POOL_SIZE = 8;
 const MIN_POOL_SIZE = 1;
 const MAX_POOL_SIZE = 20;
 
+// Backend's own public-facing address -- used to turn the ML pipeline's
+// locally-downloaded image path (e.g. "destination_images/ansoo_lake.jpg")
+// into a full URL the phone can actually load, via the static route
+// mounted in server.js at /destination-images. For a real device (not
+// simulator/web), this needs to be your machine's LAN IP, not localhost.
+const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 5000}`)
+  .replace(/\/+$/, '');
+
 function clampPoolSize(value) {
   if (value === undefined) {
     return DEFAULT_POOL_SIZE;
@@ -21,6 +29,22 @@ function clampPoolSize(value) {
 function coordinate(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+// ML only knows the image's local relative path (e.g.
+// "destination_images/ansoo_lake.jpg" or just the filename, depending on
+// how the CSV stored it) -- take just the filename and point it at
+// Backend's own static route, since that's the one host the phone
+// already talks to.
+function buildImageUrl(photoPath) {
+  if (!photoPath || typeof photoPath !== 'string') {
+    return null;
+  }
+  const filename = photoPath.split(/[\\/]/).pop();
+  if (!filename) {
+    return null;
+  }
+  return `${PUBLIC_BASE_URL}/destination-images/${filename}`;
 }
 
 function normalizeMlRow(row) {
@@ -46,7 +70,7 @@ function normalizeMlRow(row) {
     description: describeDestination(name, category, province),
     latitude: coordinate(row.latitude),
     longitude: coordinate(row.longitude),
-    imageUrl: null,
+    imageUrl: buildImageUrl(row.photo_url),
     score: Number.isFinite(score) ? score : null,
   };
 }

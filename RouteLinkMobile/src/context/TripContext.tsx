@@ -31,7 +31,7 @@ interface TripContextType {
 const TripContext = createContext<TripContextType | undefined>(undefined);
 
 export const TripProvider = ({ children }: { children: ReactNode }) => {
-  const [destination, setDestination] = useState('Hunza');
+  const [destination, setDestination] = useState('Hunza Valley');
   const [duration, setDuration] = useState('3');
   const [trip, setTrip] = useState<Trip | null>(null);
   const [trips, setTrips] = useState<Trip[]>([]);

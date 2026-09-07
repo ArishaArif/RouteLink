@@ -47,6 +47,24 @@ An AI-powered travel planning and hazard-detection application built to tackle s
 │   ├── .env.example
 │   └── package.json
 ├── ml-pipeline/                    # Python AI/ML pipeline (hazard NLP, recommender data prep)
+|   |── data/
+│   |  ├── raw/                     # Untouched source datasets (gitignored)
+│   |  └── processed/               # Cleaned data the models train/run on (gitignored)
+|   ├── models/                     # Saved trained model + vectorizer (.joblib, gitignored)
+|   ├── scripts/
+│   |   ├── load_destinations.py    # Clean + tag the destination catalog
+│   |   ├── load_ratings.py         # Reshape Google review ratings into long format
+│   |   ├── content_recommender.py  # TF-IDF + cosine similarity recommender
+│   |   ├── weather_scheduler.py    # Heat/weather-aware intraday scheduling + itinerary push
+│   |   ├── hazard_keywords.py      # Shared hazard keyword list (classifier + scraper)
+│   |   ├── hazard_classifier.py    # Trains + persists the hazard NLP model
+│   |   ├── hazard_news_scraper.py  # Live news/RSS ingest -> classify -> push to Backend
+|   |   ├── verify_api_keys.py      #Sanity check that .env file is set up correctly
+|   |   └── wikimedia_photo_lookup.py# Downloads + caches one photo per destination locally
+|   ├── app.py                      # FastAPI microservice wrapping the above
+|   ├── VERIFICATION_CHECKLIST.md   # Step-by-step commands to verify the whole pipeline
+|   ├── requirements.txt
+|   └── .env.example                # Real secrets (gitignored, never committed)
 ├── RouteLinkMobile/                # Expo / React Native app
 ├── .github/workflows/ci.yml
 └── README.md
@@ -283,3 +301,154 @@ RouteLinkMobile/
 
 > **SOS note:** `GET /api/sos/nearest` is not yet built on the backend (see `backend/SOS_DECISION.md`). Do not integrate the SOS screen against it yet.
 npm run smoke:day4 # itinerary write contract, marketplace hand-off, write auth
+> 
+## ML Pipeline
+ 
+The AI/ML core of **RouteLink**: a content-based destination recommender, a
+weather- and heat-aware itinerary scheduler, and an NLP hazard-detection
+pipeline that scrapes news/RSS, classifies real hazards, and pushes alerts
+into the Backend via `POST /api/hazards`.
+ 
+### Ownership
+ 
+This AI/ML module owns:
+ 
+* **Recommendation engine:** content-based filtering (TF-IDF + cosine
+  similarity) over the 69-destination catalog, with support for excluding
+  already-visited/dismissed spots.
+* **Weather-aware scheduling:** intraday (3-hour-slot) recommendations that
+  factor in both weather condition *and* heat-tier safety, scoped to
+  destinations actually near the requested city.
+* **Hazard NLP pipeline:** a trained classifier (Naive Bayes + TF-IDF) that
+  flags real hazard reports from live news/RSS text, with location
+  extraction against the destination catalog and a keyword gate to filter
+  out off-topic noise before classification.
+* **FastAPI microservice (`app.py`):** wraps all of the above as callable
+  HTTP endpoints for Backend to consume.
+
+### ML Service Endpoints (`app.py`)
+ 
+Runs independently from the Backend Node service, on its own port.
+ 
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Liveness check |
+| `POST` | `/api/recommend/preferences` | Recommend destinations by preferred categories (+ optional province filter, exclude list) |
+| `POST` | `/api/recommend/similar/{dest_name}` | "More like this" recommendations for a given destination |
+| `POST` | `/api/schedule/intraday` | Heat/weather-aware time-slot schedule for a city |
+| `POST` | `/api/predict/hazard` | Classify a batch of raw text as hazard / not-hazard |
+ 
+**This service's own port is separate from Backend's `:5000`.** `API_BASE_URL`
+in `ml-pipeline/.env` points the other way — it's where *this* pipeline sends
+hazard alerts *to* (Backend), not where this service itself listens.
+ 
+### Data Sources
+ 
+The destination catalog, rating data, and hazard-classifier training data
+are all built from public datasets — not scraped or fabricated:
+ 
+| Dataset | Used for | Source |
+| --- | --- | --- |
+| Top Tourist Destinations in Pakistan | Destination catalog (69 attractions, categories, coordinates) | [Kaggle](https://www.kaggle.com/datasets/naseeruddin444/top-tourist-destinations-in-pakistan) |
+| Travel Review Ratings (UCI) | Collaborative-filtering rating structure (125K+ user–category ratings) | [Kaggle](https://www.kaggle.com/datasets/ishbhms/travel-review-ratings) |
+| NLP with Disaster Tweets | Base training data for the hazard classifier (7,613 labeled tweets) | [Kaggle competition](https://www.kaggle.com/competitions/nlp-getting-started) |
+ 
+The hazard classifier is further fine-tuned on a small hand-labeled set of
+Pakistan-specific examples (`data/raw/pakistan_hazard_examples.csv`) to
+correct for the base dataset's generic/global vocabulary.
+ 
+### Destination Photos
+ 
+`wikimedia_photo_lookup.py` looks up one photo per destination from
+Wikipedia/Wikimedia and **downloads it locally** — the app serves images
+from disk instead of hitting Wikimedia on every request, avoiding rate
+limits and giving Mobile/Frontend fast, reliable image loads.
+ 
+```bash
+python scripts/wikimedia_photo_lookup.py
+```
+ 
+**Outputs:**
+- `data/processed/destination_images/` — the downloaded image files
+- `data/processed/destination_photos.csv` — maps each destination name to
+  its local image path, plus `source` (`wikipedia_exact` / `category_fallback`
+  / `none`) so it's clear which photos are an exact match vs. a generic
+  category placeholder (e.g. a generic "Lake" photo when no exact photo
+  exists for that specific destination).
+This is a one-time (resumable) data-prep step, not something that runs at
+request time — it's deliberately slow (rate-limited to be a respectful
+Wikimedia API citizen) and safe to re-run, since it skips any destination
+that already has a local image.
+ 
+### Local Setup & Installation
+ 
+**Prerequisites**
+- Python 3.11+
+1. Navigate to the ML pipeline directory:
+```bash
+   cd ml-pipeline
+```
+2. Create and activate a virtual environment:
+```bash
+   python3 -m venv .venv
+   source .venv/bin/activate      # macOS/Linux
+   .venv\Scripts\activate         # Windows
+```
+3. Install dependencies:
+```bash
+   pip install -r requirements.txt
+```
+4. Create your local env file:
+```bash
+   cp .env.example .env
+   # then fill in WEATHER_API_KEY / NEWS_API_KEY / ML_SERVICE_KEY
+```
+5. Build the processed data + train the hazard model (first-time setup):
+```bash
+   python scripts/load_destinations.py
+   python scripts/load_ratings.py
+   python scripts/hazard_classifier.py
+```
+6. Run the ML microservice:
+```bash
+   uvicorn app:app --reload
+```
+ 
+Confirm it's working:
+ 
+```bash
+curl http://localhost:8000/health
+# {"status":"ok","service":"RouteLink ML Pipeline"}
+```
+ 
+### Environment variables
+ 
+| Variable | Required | Notes |
+| --- | --- | --- |
+| `WEATHER_API_KEY` | yes | OpenWeatherMap — live forecasts for scheduling |
+| `NEWS_API_KEY` | yes | NewsAPI.org — hazard news search |
+| `TWITTER_BEARER_TOKEN` `TWITTER_API_KEY` `TWITTER_API_SECRET` | no | Deferred this sprint — X's free tier has no search credits. Kept wired for later. |
+| `API_BASE_URL` | yes | Backend's URL, e.g. `http://localhost:5000` — where hazard alerts get POSTed *to* |
+| `ML_SERVICE_KEY` | yes | Shared secret sent as `X-Ingest-Key` when pushing to Backend — must match Backend's own `ML_SERVICE_KEY` |
+| `ML_SERVICE_PORT` | no | Defaults to `8000` |
+ 
+### Running the hazard pipeline
+ 
+```bash
+python scripts/hazard_news_scraper.py
+```
+ 
+Fetches live news + RSS, gates on hazard/region keywords, classifies with
+the trained model, extracts destination matches, and pushes results to
+Backend's `POST /api/hazards` (or prints a dry-run payload if
+`ML_SERVICE_KEY`/`API_BASE_URL` aren't set).
+ 
+### Verifying everything works
+ 
+**See [`ml-pipeline/VERIFICATION_CHECKLIST.md`](ml-pipeline/VERIFICATION_CHECKLIST.md)**
+for the full command-by-command checklist covering data loading, the
+recommender, the scheduler, the hazard classifier, the news scraper, and
+all 5 FastAPI endpoints — with expected output for each, so a fresh
+clone can be confirmed working end to end before a demo.
+ 
+ 
