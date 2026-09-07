@@ -47,8 +47,14 @@ function normalizeSlotRow(row) {
   // When needs_marketplace_data is true, the suggestion is the ML fallback
   // message (a full sentence with commas) — not a destination list, so
   // we must NOT split it into picks.
+  // When the suggestion starts with "No safe" it's an ML fallback message
+  // (e.g. extreme heat advisory), not a destination list — use it as the
+  // fallbackMessage so the frontend banner renders correctly.
   const isFallback = row.needs_marketplace_data === true
     || (typeof rawSuggestion === 'string' && rawSuggestion.startsWith('No safe'));
+  const fallbackMessage = isFallback
+    ? (row.fallback_message || row.fallbackMessage || rawSuggestion)
+    : (row.fallback_message || row.fallbackMessage || null);
   const rawPicks = Array.isArray(row.picks) && row.picks.length > 0
     ? row.picks
     : !isFallback && typeof rawSuggestion === 'string' && rawSuggestion.length > 0
@@ -62,7 +68,7 @@ function normalizeSlotRow(row) {
     slotType: SLOT_MAP[row.slot_type] || SLOT_MAP[row.slotType] || 'mixed',
     suggestion: rawSuggestion,
     picks: rawPicks,
-    fallbackMessage: row.fallback_message || row.fallbackMessage || null,
+    fallbackMessage,
   };
 }
 
@@ -86,7 +92,11 @@ function buildDaysFromSlots(slots, tripDates) {
   const dateKeys = [...byDate.keys()];
   const days = [];
 
-  for (let i = 0; i < dateKeys.length; i++) {
+  // Clamp forecast days to trip length — if ML returns more forecast days
+  // than the trip spans, discard surplus (avoids null dates on bulkCreate).
+  // If ML returns fewer days, we use only what we have (no empty days).
+  const maxDays = tripDates.length > 0 ? tripDates.length : dateKeys.length;
+  for (let i = 0; i < Math.min(dateKeys.length, maxDays); i++) {
     const daySlots = byDate.get(dateKeys[i]);
     const date = tripDates[i] || null;
     const heatTiers = daySlots.map((s) => s.heatTier);

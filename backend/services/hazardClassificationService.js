@@ -36,19 +36,25 @@ async function classifyHazardText(text) {
 
   const result = await mlClient.predictHazard([text]);
 
-  if (result.ok && Array.isArray(result.data) && result.data.length > 0) {
-    const row = result.data[0];
-    return {
-      source: 'ml',
-      mocked: false,
-      degraded: false,
-      reason: null,
-      verdict: {
-        text: String(text || ''),
-        hazardConfidence: typeof row.hazard_confidence === 'number' ? row.hazard_confidence : 0,
-        isHazard: Boolean(row.is_hazard),
-      },
-    };
+  if (result.ok && result.data) {
+    // ML should return an array of verdicts, but the mock endpoint returns
+    // a single object. Unwrap both shapes gracefully.
+    const rows = Array.isArray(result.data) ? result.data : [result.data];
+    const row = rows[0];
+
+    if (row && typeof row === 'object' && 'is_hazard' in row) {
+      return {
+        source: 'ml',
+        mocked: false,
+        degraded: false,
+        reason: null,
+        verdict: {
+          text: String(text || ''),
+          hazardConfidence: typeof row.hazard_confidence === 'number' ? row.hazard_confidence : 0,
+          isHazard: Boolean(row.is_hazard),
+        },
+      };
+    }
   }
 
   return {

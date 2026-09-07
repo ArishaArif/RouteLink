@@ -44,10 +44,12 @@ const EXPLORE_CARD_WIDTH = width * 0.62;
 const CATEGORIES = [
   { key: 'valley', label: 'Valleys' },
   { key: 'lake', label: 'Lakes' },
-  { key: 'meadow', label: 'Meadows' },
-  { key: 'plateau', label: 'Plateaus' },
-  { key: 'mountain pass', label: 'Passes' },
-  { key: 'town', label: 'Towns' },
+  { key: 'waterfall', label: 'Waterfalls' },
+  { key: 'mountainous', label: 'Mountains' },
+  { key: 'national park', label: 'National Parks' },
+  { key: 'coastal', label: 'Beaches' },
+  { key: 'fort', label: 'Forts' },
+  { key: 'hill station', label: 'Hill Stations' },
 ];
 
 function imageForSpot(spot: AttractionSpot): string | null {
