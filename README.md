@@ -58,7 +58,9 @@ An AI-powered travel planning and hazard-detection application built to tackle s
 │   |   ├── weather_scheduler.py    # Heat/weather-aware intraday scheduling + itinerary push
 │   |   ├── hazard_keywords.py      # Shared hazard keyword list (classifier + scraper)
 │   |   ├── hazard_classifier.py    # Trains + persists the hazard NLP model
-│   |   └── hazard_news_scraper.py  # Live news/RSS ingest -> classify -> push to Backend
+│   |   ├── hazard_news_scraper.py  # Live news/RSS ingest -> classify -> push to Backend
+|   |   ├── verify_api_keys.py      #Sanity check that .env file is set up correctly
+|   |   └── wikimedia_photo_lookup.py# Downloads + caches one photo per destination locally
 |   ├── app.py                      # FastAPI microservice wrapping the above
 |   ├── VERIFICATION_CHECKLIST.md   # Step-by-step commands to verify the whole pipeline
 |   ├── requirements.txt
